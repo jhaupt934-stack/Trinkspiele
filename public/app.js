@@ -14,7 +14,9 @@ import {
   playersWithMatch,
   allowedPyramidIndices,
   sipTargets,
-  distributorId,
+  pendingFor,
+  pendingTotal,
+  distributorIds,
   activePlayerId,
   playerById,
   MIN_PLAYERS,
@@ -102,7 +104,9 @@ function handHtml(player) {
   return `<div class="hand">${cards}</div>`;
 }
 
-function seatsHtml(players, activeId) {
+/** `active` darf eine Id oder eine Liste von Ids sein (mehrere Verteiler). */
+function seatsHtml(players, active) {
+  const activeIds = new Set([active].flat().filter(Boolean));
   return (
     `<div class="seats">` +
     players
@@ -119,7 +123,7 @@ function seatsHtml(players, activeId) {
                 })
                 .join("");
         return (
-          `<div class="seat ${p.id === activeId ? "active" : ""}">` +
+          `<div class="seat ${activeIds.has(p.id) ? "active" : ""}">` +
           `<div class="head">${avatar(p.name, true)}<span class="name">${esc(p.name)}</span>` +
           `<span class="badge">${p.sips}</span></div>` +
           `<div class="cards">${cards}</div>` +
@@ -132,26 +136,41 @@ function seatsHtml(players, activeId) {
   );
 }
 
-/** Kurze Einblendung oben, z.B. wenn man Schlucke bekommt. */
+/** Kurze Einblendung oben. Mehrere stapeln sich untereinander. */
 function toast(html) {
-  document.querySelector(".toast")?.remove();
+  let box = document.querySelector(".toasts");
+  if (!box) {
+    box = document.createElement("div");
+    box.className = "toasts";
+    document.body.appendChild(box);
+  }
   const t = document.createElement("div");
   t.className = "toast";
   t.innerHTML = html;
-  document.body.appendChild(t);
-  setTimeout(() => t.classList.add("out"), 3600);
-  setTimeout(() => t.remove(), 4100);
+  box.appendChild(t);
+  while (box.children.length > 4) box.firstChild.remove();
+  setTimeout(() => t.classList.add("out"), 4200);
+  setTimeout(() => t.remove(), 4700);
 }
 
-/** Hat mir jemand gerade Schlucke gegeben? Dann einmal einblenden. */
+/**
+ * Meldungen ueber bekommene Schluecke. Der Server schreibt sie erst, wenn
+ * jemand seine Verteilung komplett abgeschlossen hat - pro Empfaenger genau
+ * eine Meldung mit der Gesamtzahl, nicht eine pro Schluck.
+ */
 function checkSipToast(g) {
-  const s = g?.lastSip;
-  if (!s || s.seq <= S.sipSeen) return;
-  S.sipSeen = s.seq;
-  if (S.mode !== "online" || s.toId !== S.myId) return;
-  const from = g.players.find((p) => p.id === s.fromId)?.name ?? "Jemand";
-  toast(`${avatar(from)}<span><strong>${esc(from)}</strong> gibt dir
-         <strong>${s.count} Schluck${s.count > 1 ? "e" : ""}</strong> 🍺</span>`);
+  const log = g?.sipLog ?? [];
+  if (log.length === 0) return;
+  const neu = log.filter((e) => e.seq > S.sipSeen);
+  S.sipSeen = Math.max(S.sipSeen, ...log.map((e) => e.seq));
+  if (S.mode !== "online") return;
+
+  for (const e of neu) {
+    if (e.toId !== S.myId) continue;
+    const from = g.players.find((p) => p.id === e.fromId)?.name ?? "Jemand";
+    toast(`${avatar(from)}<span><strong>${esc(from)}</strong> gibt dir
+           <strong>${e.count} Schluck${e.count > 1 ? "e" : ""}</strong> 🍺</span>`);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -301,30 +320,38 @@ function hostName(g) {
   return g.players.find((p) => p.id === g.hostId)?.name ?? "Der Host";
 }
 
-function handOutPanel(g) {
-  const targets = sipTargets(g);
-  const from = g.players.find((p) => p.id === distributorId(g));
-  const mine = canAct({ type: "handOutSip", targetId: targets[0]?.id ?? "" });
+/** Das Verteil-Feld fuer einen bestimmten Spieler. */
+function handOutPanel(g, fromId) {
+  const n = pendingFor(g, fromId);
+  if (n === 0) return "";
+  const from = playerById(g, fromId);
+  const wer = S.mode === "local" ? `${esc(from.name)}: noch ` : "Noch ";
 
-  if (!mine) {
-    return `<p class="banner">${esc(from?.name ?? "Jemand")} verteilt noch ${g.pendingSips} Schluck${
-      g.pendingSips > 1 ? "e" : ""
-    }.</p>`;
-  }
   return `
     <div class="panel accent">
-      <h3>Noch ${g.pendingSips} Schluck${g.pendingSips > 1 ? "e" : ""} verteilen 🍺</h3>
-      <p class="hint">Tipp auf den, der trinken soll. An dich selbst geht nicht.</p>
+      <h3>${wer}${n} Schluck${n > 1 ? "e" : ""} verteilen 🍺</h3>
+      <p class="hint">Tipp auf den, der trinken soll. An dich selbst geht nicht.
+      Die anderen erfahren es erst, wenn du fertig verteilt hast.</p>
       <div class="tiles">
-        ${targets
+        ${sipTargets(g, fromId)
           .map(
             (p) =>
-              `<button class="tile" data-a="sip" data-id="${p.id}">${avatar(p.name)}` +
+              `<button class="tile" data-a="sip" data-id="${p.id}" data-from="${fromId}">${avatar(p.name)}` +
               `<span style="flex:1">${esc(p.name)}</span><span class="badge">${p.sips}</span></button>`
           )
           .join("")}
       </div>
     </div>`;
+}
+
+/** Hinweis auf alle anderen, die parallel noch verteilen. */
+function othersDistributing(g, exceptId) {
+  const rest = distributorIds(g).filter((id) => id !== exceptId);
+  if (rest.length === 0) return "";
+  const text = rest
+    .map((id) => `${esc(playerById(g, id).name)} (${pendingFor(g, id)})`)
+    .join(", ");
+  return `<p class="banner">Verteil${rest.length > 1 ? "en" : "t"} noch: ${text}</p>`;
 }
 
 function guessScreen(g) {
@@ -340,9 +367,16 @@ function guessScreen(g) {
     [["Hatte ich schon", "seen"], ["Ist neu", "new"]],
   ][g.round];
 
+  // In Phase 1 verteilt immer nur der, der gerade geraten hat.
   let footer;
-  if (g.pendingSips > 0) footer = handOutPanel(g);
-  else if (canAct({ type: "guess", value: "red" }))
+  if (pendingTotal(g) > 0) {
+    footer =
+      S.mode === "local" || pendingFor(g, S.myId) > 0
+        ? handOutPanel(g, distributorIds(g)[0])
+        : `<p class="banner">${esc(turn.name)} verteilt noch ${pendingFor(g, turn.id)} Schluck${
+            pendingFor(g, turn.id) > 1 ? "e" : ""
+          }.</p>`;
+  } else if (canAct({ type: "guess", value: "red" }))
     footer = `<div class="row" style="margin-top:16px">${options
       .map(([label, v]) => `<button data-a="guess" data-v="${v}">${label}</button>`)
       .join("")}</div>`;
@@ -367,7 +401,8 @@ function rowsScreen(g) {
   const others = g.players.filter((p) => p.id !== meId());
   const cur = currentRowCard(g);
   const matches = playersWithMatch(g);
-  const myMatch = matches.find((p) => p.id === meId());
+  const offen = pendingTotal(g) > 0;
+  const binHost = S.mode === "local" || g.hostId === S.myId;
 
   const line = (row, kind) =>
     `<div class="line">` +
@@ -383,46 +418,71 @@ function rowsScreen(g) {
       .join("") +
     `</div>`;
 
-  let footer;
-  if (g.pendingSips > 0) {
-    footer = handOutPanel(g);
-  } else if (!g.revealedNow) {
-    footer = canAct({ type: "revealRow" })
-      ? `<button class="wide" data-a="reveal">Karte aufdecken (${g.cursor + 1} von 8)</button>`
-      : `<p class="banner">${esc(hostName(g))} deckt die nächste Karte auf.</p>`;
-  } else {
-    const inner =
-      matches.length === 0
-        ? `<p class="hint">Niemand hat diesen Wert.</p>`
-        : myMatch
-        ? `<button class="accent wide" data-a="discard" data-id="${myMatch.id}">Karte ablegen</button>`
-        : `<p class="hint">Passt bei: ${matches.map((p) => esc(p.name)).join(", ")}</p>`;
-    footer = `
+  // 1. Eigene Verteil-Auftraege. Lokal liegen alle auf demselben Geraet.
+  const panels =
+    S.mode === "local"
+      ? distributorIds(g)
+          .map((id) => handOutPanel(g, id))
+          .join("")
+      : handOutPanel(g, S.myId);
+
+  // 2. Ablegen - das geht auch, waehrend jemand anders noch verteilt.
+  let ablegen = "";
+  if (g.revealedNow) {
+    const meine = S.mode === "local" ? matches : matches.filter((p) => p.id === S.myId);
+    const fremde = S.mode === "local" ? [] : matches.filter((p) => p.id !== S.myId);
+    ablegen = `
       <div class="panel">
         <h3>${cur?.card.card.rank} – ${cur?.kind === "drink" ? "selber trinken" : "verteilen"}, ${
       cur?.card.value
     } Schluck${cur?.card.value > 1 ? "e" : ""}</h3>
-        ${inner}
-      </div>
-      ${
-        canAct({ type: "nextRow" })
-          ? `<button class="secondary wide" data-a="next">Weiter</button>`
-          : `<p class="banner">${esc(hostName(g))} blättert weiter.</p>`
-      }`;
+        ${matches.length === 0 ? `<p class="hint" style="margin:0">Niemand hat diesen Wert.</p>` : ""}
+        ${meine
+          .map(
+            (p) =>
+              `<button class="accent wide" data-a="discard" data-id="${p.id}" style="margin-bottom:8px">` +
+              `${S.mode === "local" ? esc(p.name) + ": " : ""}Karte ablegen</button>`
+          )
+          .join("")}
+        ${
+          fremde.length
+            ? `<p class="hint" style="margin:0">Passt außerdem bei: ${fremde
+                .map((p) => esc(p.name))
+                .join(", ")}</p>`
+            : ""
+        }
+      </div>`;
   }
+
+  // 3. Aufdecken bzw. weiterblaettern - erst wenn alle fertig verteilt haben.
+  let steuerung;
+  if (!g.revealedNow) {
+    steuerung = binHost
+      ? `<button class="wide" data-a="reveal" ${offen ? "disabled" : ""}>Karte aufdecken (${
+          g.cursor + 1
+        } von 8)</button>`
+      : `<p class="banner">${esc(hostName(g))} deckt die nächste Karte auf.</p>`;
+  } else {
+    steuerung = binHost
+      ? `<button class="secondary wide" data-a="next" ${offen ? "disabled" : ""}>Weiter</button>`
+      : `<p class="banner">${esc(hostName(g))} blättert weiter.</p>`;
+  }
+
+  const footer =
+    panels + ablegen + (S.mode === "local" ? "" : othersDistributing(g, S.myId)) + steuerung;
 
   return `
     <h2>Die zwei Reihen</h2>
     <p class="sub">Gleicher Kartenwert = ablegen. Wenig Karten ist gut.</p>
     ${g.message ? `<p class="msg">${esc(g.message)}</p>` : ""}
-    ${seatsHtml(others, g.pendingFromId)}
+    ${seatsHtml(others, distributorIds(g))}
     <div class="felt">
       <span class="tag drink">Selber trinken</span>
       ${line(g.drinkRow, "drink")}
       <span class="tag give">Verteilen</span>
       ${line(g.giveRow, "give")}
     </div>
-    ${meBlock(me, g.pendingFromId)}
+    ${meBlock(me, distributorIds(g))}
     <div class="actions">${footer}</div>`;
 }
 
@@ -528,6 +588,23 @@ function pyramidScreen(g) {
 
 function resultScreen(g) {
   const ranked = [...g.players].sort((a, b) => b.sips - a.sips);
+  const binHost = g.hostId === S.myId;
+
+  // Online bleibt die Lobby mit demselben Code bestehen - ihr müsst euch nicht
+  // neu zusammenfinden, weder für noch eine Runde noch für ein anderes Spiel.
+  const footer =
+    S.mode !== "online"
+      ? `<button class="wide" data-a="localAgain">Nochmal spielen 🎉</button>
+         <button class="ghost wide" data-a="home">Zurück zum Start</button>`
+      : binHost
+      ? `<button class="wide" data-a="againNow">Nochmal Busfahren 🎉</button>
+         <button class="secondary wide" data-a="toLobby" style="margin-top:10px">Zurück in die Lobby</button>
+         <p class="sub" style="text-align:center;margin:10px 0 0">Die Lobby
+         <strong>${esc(S.lobby?.code ?? "")}</strong> bleibt bestehen.</p>`
+      : `<p class="banner">${esc(playerById(g, g.hostId)?.name ?? "Der Host")} startet die
+         nächste Runde. Ihr bleibt zusammen in Lobby <strong>${esc(S.lobby?.code ?? "")}</strong>.</p>
+         <button class="ghost wide" data-a="leave" style="margin-top:10px">Lobby verlassen</button>`;
+
   return `
     <h2>Ergebnis 🏆</h2>
     <p class="sub">Schlucke gesamt</p>
@@ -542,17 +619,18 @@ function resultScreen(g) {
       </div>`
       )
       .join("")}
-    <div style="height:24px"></div>
-    <button class="wide" data-a="home">Nochmal spielen</button>`;
+    <div style="height:20px"></div>
+    <div class="actions">${footer}</div>`;
 }
 
-function meBlock(me, activeId) {
+function meBlock(me, active) {
   if (!me) return "";
+  const dran = new Set([active].flat().filter(Boolean)).has(me.id);
   return `
     <div class="me">
       <div class="head">
         ${avatar(me.name)}
-        <span class="name">${esc(me.name)}${me.id === activeId ? " – du bist dran" : ""}</span>
+        <span class="name">${esc(me.name)}${dran ? " – du bist dran" : ""}</span>
         <span class="badge">${me.sips}</span>
       </div>
       ${handHtml(me)}
@@ -613,10 +691,20 @@ function connect() {
     render();
   });
   socket.on("game", (game) => {
+    // Frische Runde: der Meldungszähler fängt wieder bei null an.
+    if ((game.sipLog ?? []).length === 0) S.sipSeen = 0;
     S.game = game;
     S.screen = "game";
     render();
     checkSipToast(game);
+  });
+
+  // Runde vorbei, aber die Lobby bleibt: alle zurück in den Warteraum.
+  socket.on("backToLobby", () => {
+    S.game = null;
+    S.sipSeen = 0;
+    S.screen = "lobby";
+    render();
   });
   socket.on("errorMsg", (msg) => {
     S.error = msg;
@@ -727,11 +815,28 @@ el.addEventListener("click", (e) => {
       Object.assign(S, { screen: "home", mode: "local", lobby: null, myId: null, game: null });
       break;
 
+    case "againNow": // gleiche Lobby, sofort neue Runde
+      S.socket?.emit("playAgain", { restart: true });
+      return;
+
+    case "toLobby": // gleiche Lobby, zurück in den Warteraum
+      S.socket?.emit("playAgain", { restart: false });
+      return;
+
+    case "localAgain": {
+      const players = S.game.players.map((p) => ({ id: p.id, name: p.name }));
+      S.game = initGame(players);
+      S.screen = "game";
+      break;
+    }
+
     // Spielzüge
     case "guess":
       return dispatch({ type: "guess", value: t.dataset.v });
     case "sip":
-      return dispatch({ type: "handOutSip", targetId: t.dataset.id });
+      // `fromId` sagt, wessen Schlucke verteilt werden - online prüft der
+      // Server das ohnehin nochmal gegen den echten Absender.
+      return dispatch({ type: "handOutSip", targetId: t.dataset.id, fromId: t.dataset.from });
     case "reveal":
       return dispatch({ type: "revealRow" });
     case "discard":
