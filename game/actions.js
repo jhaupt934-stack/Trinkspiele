@@ -51,10 +51,11 @@ export function mayAct(g, playerId, action) {
       if (g.phase === "rows") return g.pendingSips > 0 && g.pendingFromId === playerId;
       return false;
 
-    // Aufdecken und weiterblaettern ist reiner Ablauf, keine Entscheidung.
+    // Aufdecken und weiterblaettern macht nur der Host, damit nicht mehrere
+    // gleichzeitig durchklicken. Ohne Host (lokales Spiel) darf es jeder.
     case "revealRow":
     case "nextRow":
-      return g.phase === "rows";
+      return g.phase === "rows" && (!g.hostId || g.hostId === playerId);
 
     // Ablegen darf nur, wem die Karte gehoert.
     case "discard":

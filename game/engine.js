@@ -42,11 +42,16 @@ export const MAX_PLAYERS = 8;
 // Start
 // ---------------------------------------------------------------------------
 
-/** `players` ist [{id, name}] - im lokalen Spiel vergeben wir die Ids selbst. */
-export function initGame(players, rng) {
+/**
+ * `players` ist [{id, name}] - im lokalen Spiel vergeben wir die Ids selbst.
+ * `hostId` bestimmt, wer in Phase 2 die Karten aufdecken darf. Bleibt es leer
+ * (lokales Spiel auf einem Geraet), darf das jeder.
+ */
+export function initGame(players, rng, hostId = null) {
   if (players.length < MIN_PLAYERS) throw new Error("Mindestens 2 Spieler.");
   return {
     players: players.map((p) => ({ id: p.id, name: p.name, sips: 0, cards: [], connected: true })),
+    hostId,
     deck: createShuffledDeck(rng),
     phase: "guess",
     round: 0,
