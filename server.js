@@ -22,6 +22,19 @@ import { handleAction } from "./game/actions.js";
 const SPIELE = { bus: initGame, race: initRace };
 const istSpiel = (s) => Object.prototype.hasOwnProperty.call(SPIELE, s);
 
+// Profilbilder. Dieselbe Liste steht in public/app.js - test-ui.js prueft,
+// dass die beiden nicht auseinanderlaufen.
+const AVATARE = [
+  "🦊", "🐼", "🐸", "🐙", "🦁", "🐷", "🐵", "🦉",
+  "🐺", "🦄", "🐨", "🐯", "🦖", "🐬", "🦩", "🐝",
+];
+
+/** Das erste Bild, das in dieser Lobby noch keiner hat. */
+function freiesAvatar(lobby) {
+  const belegt = new Set(lobby.players.map((p) => p.avatar));
+  return AVATARE.find((a) => !belegt.has(a)) ?? AVATARE[0];
+}
+
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT ?? 8080);
 const IDLE_MS = 3 * 60 * 60 * 1000;
@@ -118,12 +131,20 @@ function findBySocket(socketId) {
 const io = new Server(server, { cors: { origin: "*" } });
 
 io.on("connection", (socket) => {
-  socket.on("createLobby", ({ name, spiel } = {}, ack) => {
+  socket.on("createLobby", ({ name, spiel, avatar } = {}, ack) => {
     const code = makeCode();
     const playerId = "p-" + Math.random().toString(36).slice(2, 10);
     const lobby = {
       code,
-      players: [{ id: playerId, name: (name ?? "").trim() || "Spieler", isHost: true, connected: true }],
+      players: [
+        {
+          id: playerId,
+          name: (name ?? "").trim() || "Spieler",
+          avatar: AVATARE.includes(avatar) ? avatar : AVATARE[0],
+          isHost: true,
+          connected: true,
+        },
+      ],
       sockets: new Map([[playerId, socket.id]]),
       game: null,
       spiel: istSpiel(spiel) ? spiel : "bus",
@@ -135,15 +156,25 @@ io.on("connection", (socket) => {
     io.to(code).emit("lobby", lobbyView(lobby));
   });
 
-  socket.on("joinLobby", ({ code, name } = {}, ack) => {
+  socket.on("joinLobby", ({ code, name, avatar } = {}, ack) => {
     const key = (code ?? "").trim().toUpperCase();
     const lobby = lobbies.get(key);
     if (!lobby) return ack?.({ ok: false, error: "Diesen Code gibt es nicht." });
     if (lobby.game) return ack?.({ ok: false, error: "Das Spiel läuft schon." });
     if (lobby.players.length >= MAX_PLAYERS) return ack?.({ ok: false, error: "Die Lobby ist voll." });
 
+    // Wunschbild nur, wenn es noch keiner hat - sonst das naechste freie.
+    const belegt = new Set(lobby.players.map((p) => p.avatar));
+    const meins = AVATARE.includes(avatar) && !belegt.has(avatar) ? avatar : freiesAvatar(lobby);
+
     const playerId = "p-" + Math.random().toString(36).slice(2, 10);
-    lobby.players.push({ id: playerId, name: (name ?? "").trim() || "Spieler", isHost: false, connected: true });
+    lobby.players.push({
+      id: playerId,
+      name: (name ?? "").trim() || "Spieler",
+      avatar: meins,
+      isHost: false,
+      connected: true,
+    });
     lobby.sockets.set(playerId, socket.id);
     lobby.lastActivity = Date.now();
     socket.join(key);
@@ -171,7 +202,7 @@ io.on("connection", (socket) => {
   function neueRunde(lobby) {
     const start = SPIELE[lobby.spiel] ?? initGame;
     lobby.game = start(
-      lobby.players.map((p) => ({ id: p.id, name: p.name })),
+      lobby.players.map((p) => ({ id: p.id, name: p.name, avatar: p.avatar })),
       undefined,
       lobby.players.find((p) => p.isHost)?.id ?? lobby.players[0].id
     );
@@ -179,6 +210,23 @@ io.on("connection", (socket) => {
     io.to(lobby.code).emit("lobby", lobbyView(lobby));
     io.to(lobby.code).emit("game", lobby.game);
   }
+
+  // Profilbild wechseln. Jedes gibt es in einer Lobby nur einmal.
+  socket.on("setAvatar", ({ avatar } = {}) => {
+    const found = findBySocket(socket.id);
+    if (!found || found.lobby.game) return;
+    const { lobby, playerId } = found;
+    if (!AVATARE.includes(avatar)) return;
+
+    if (lobby.players.some((p) => p.avatar === avatar && p.id !== playerId)) {
+      return socket.emit("errorMsg", "Das Bild hat schon jemand.");
+    }
+    const me = lobby.players.find((p) => p.id === playerId);
+    if (!me) return;
+    me.avatar = avatar;
+    lobby.lastActivity = Date.now();
+    io.to(lobby.code).emit("lobby", lobbyView(lobby));
+  });
 
   // Der Host stellt um, welches Spiel als naechstes laeuft.
   socket.on("setGame", ({ spiel } = {}) => {
