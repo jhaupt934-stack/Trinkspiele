@@ -129,6 +129,10 @@ const REGELN = {
 };
 const regelnHtml = (id) => REGELN[id] ?? "<p>Für dieses Spiel gibt es noch keine Erklärung.</p>";
 
+// Steht unten auf der Startseite. Wenn etwas komisch aussieht, sagt diese
+// Nummer sofort, welche Fassung auf dem Handy wirklich laeuft.
+const VERSION = "v14";
+
 const el = document.getElementById("app");
 
 // Der Name wird im Browser gespeichert und beim naechsten Oeffnen
@@ -169,11 +173,14 @@ const S = {
 const esc = (s) =>
   String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
-// Profilbilder. Dieselbe Liste steht in server.js - test-ui.js prueft,
-// dass die beiden nicht auseinanderlaufen.
+// Profilbilder: Gesichter mit verschiedenen Hauttoenen, Frisuren und Baerten,
+// damit man sie am Tisch sofort auseinanderhaelt.
+// Dieselbe Liste steht in server.js - test-ui.js prueft, dass beide gleich sind.
 const AVATARE = [
-  "🦊", "🐼", "🐸", "🐙", "🦁", "🐷", "🐵", "🦉",
-  "🐺", "🦄", "🐨", "🐯", "🦖", "🐬", "🦩", "🐝",
+  "👩🏻‍🦰", "🧔🏻", "👱🏼", "👨🏻‍🦲",
+  "👩🏼‍🦱", "🧔🏽", "👨🏽", "👩🏽",
+  "👳🏽", "🧕🏽", "👨🏾‍🦱", "👩🏾",
+  "🧔🏿", "👩🏿‍🦳", "👨🏿‍🦲", "👵🏼",
 ];
 
 // Wer kein Bild hat (lokales Spiel), bekommt einen farbigen Kreis mit
@@ -361,7 +368,8 @@ function homeScreen() {
     <div class="stack">
       <button data-a="online">🌍 Online mit Freunden</button>
       <button class="secondary" data-a="local">📱 Alle an einem Handy</button>
-    </div>`;
+    </div>
+    <p class="version">${VERSION}</p>`;
 }
 
 /**
@@ -447,6 +455,9 @@ function setupScreen() {
     </div>`;
 }
 
+/** Name des Hosts im Warteraum. */
+const hostNameLobby = () => S.lobby?.players.find((p) => p.isHost)?.name ?? "der Host";
+
 function lobbyScreen() {
   // Warteraum
   if (S.lobby) {
@@ -473,10 +484,11 @@ function lobbyScreen() {
         )
         .join("")}
 
-      <p class="label">Dein Bild</p>
+      <p class="label">Dein Bild – tipp eins an</p>
       ${avatarPicker(S.lobby.players, me?.avatar)}
+      <p class="avhint">Ausgegraute hat schon jemand.</p>
 
-      <p class="label">${binHost ? "Spiel wählen" : "Spiel"}</p>
+      <p class="label">${binHost ? "Spiel wählen" : `Spiel (wählt ${esc(hostNameLobby())})`}</p>
       ${gamePicker(spiel, binHost)}
       ${S.error ? `<p class="error">${esc(S.error)}</p>` : ""}
 
@@ -916,60 +928,113 @@ function betScreen(g) {
 }
 
 /**
+ * Wer auf dieses Pferd gesetzt hat - ganz knapp, nur die Gesichter.
+ * Feste Hoehe und hoechstens drei Stueck, damit alle Spalten gleich hoch
+ * bleiben. Wer wie viel gesetzt hat, steht auf dem Wettzettel.
+ */
+function betsMini(g, suit) {
+  const wetten = betsOn(g, suit);
+  if (wetten.length === 0) return `<span class="bmini"></span>`;
+  const zeigen = wetten
+    .slice(0, 3)
+    .map((p) => p.avatar ?? esc(p.name.charAt(0).toUpperCase()))
+    .join("");
+  return `<span class="bmini">${zeigen}${wetten.length > 3 ? `<b>+${wetten.length - 3}</b>` : ""}</span>`;
+}
+
+// Streckenkarte und Pferd sind gleich gross und stehen immer auf derselben
+// Hoehe. SCHRITT ist der Abstand von Stufe zu Stufe, KARTE_H die Kartenhoehe
+// (muss zu .card.t im Stylesheet passen - test-ui.js prueft das).
+const SCHRITT = 59;
+const KARTE_H = 53;
+const BAHN_H = ZIEL * SCHRITT + KARTE_H;
+
+/**
  * Die Rennbahn laeuft von oben nach unten: oben der Start, unten das Ziel.
- * Links stehen die Streckenkarten, rechts daneben die vier Bahnen.
+ * Jedes Pferd hat eine eigene farbige Bahn, hinter sich eine Spur, die zeigt,
+ * wie weit es schon ist. Links stehen die Streckenkarten als Schilder.
+ *
+ * Die Pferde sitzen frei positioniert statt in einem Raster - dadurch bleiben
+ * alle Bahnen gleich hoch, egal wie viele wo stehen.
  */
 function raceScreen(g) {
   const binHost = S.mode === "local" || g.hostId === S.myId;
+  const hostName = playerById(g, g.hostId)?.name ?? "Host";
 
-  // Kopfzeile: welches Pferd gehoert zu welcher Spalte, und wer hat gesetzt.
+  // Kopfzeile: farbiger Kreis mit dem Symbol, darunter wer gesetzt hat.
   const kopf =
-    `<div class="rrow head"><span class="mark"></span>` +
+    `<div class="rhead"><span class="mk-sp"></span>` +
     HORSE_ORDER.map(
       (suit) =>
-        `<span class="cell"><span class="hsuit ${suitCls(suit)}">${suitSymbol(suit)}</span>` +
-        betChips(g, suit) +
+        `<span class="hcol"><span class="roundel ${suit}">${suitSymbol(suit)}</span>` +
+        betsMini(g, suit) +
         `</span>`
     ).join("") +
     `</div>`;
 
-  // Eine Zeile pro Feld, von 0 (Start) bis zum Ziel.
-  const zeilen = Array.from({ length: ZIEL + 1 }, (_, feld) => {
-    let marke;
-    if (feld === 0) marke = `<span class="mark start">START</span>`;
-    else if (feld > STRECKENKARTEN) marke = `<span class="mark ziel">🏁</span>`;
+  // Linke Spalte: Start, die fuenf Streckenkarten, Ziel. Gleiche Kartengroesse
+  // und dieselbe Hoehe wie die Pferde, damit alles auf einer Linie liegt.
+  const marken = Array.from({ length: ZIEL + 1 }, (_, feld) => {
+    let inhalt;
+    if (feld === 0) inhalt = `<span class="mk-start">START</span>`;
+    else if (feld > STRECKENKARTEN) inhalt = `<span class="mk-ziel">🏁</span>`;
     else {
       const s = g.side[feld - 1];
-      marke = `<span class="mark">${cardHtml(s.card, "s", { faceDown: !s.revealed })}</span>`;
+      inhalt = cardHtml(s.card, "t", { faceDown: !s.revealed });
     }
-
-    const zellen = HORSE_ORDER.map((suit) => {
-      if (g.horses[suit] !== feld) return `<span class="cell"></span>`;
-      const cls = [g.winner === suit ? "win" : "", g.lastMove?.suit === suit ? "moved" : ""].join(" ");
-      return `<span class="cell hier ${cls}">${horseCard(suit, "s")}</span>`;
-    }).join("");
-
-    return `<div class="rrow ${feld === 0 ? "startzeile" : ""}">${marke}${zellen}</div>`;
+    return `<span class="mk" style="top:${feld * SCHRITT}px;height:${KARTE_H}px">${inhalt}</span>`;
   }).join("");
 
-  const gezogen = `
-    <div class="drawn">
-      ${cardHtml(g.flipped, "m", { faceDown: !g.flipped })}
-      <span class="note">${
-        g.flipped ? `${suitName(g.flipped.suit)} zieht vor` : "Noch keine Karte"
-      }</span>
-    </div>`;
+  const bahnen = HORSE_ORDER.map((suit) => {
+    const pos = g.horses[suit];
+    const cls = [
+      "lane",
+      suit,
+      g.winner === suit ? "win" : "",
+      g.lastMove?.suit === suit ? "moved" : "",
+    ].join(" ");
+    return `
+      <span class="${cls}" style="height:${BAHN_H}px">
+        <span class="trail" style="height:${pos * SCHRITT + KARTE_H / 2}px"></span>
+        <span class="ziellinie"></span>
+        <span class="horse" style="top:${pos * SCHRITT}px">
+          ${horseCard(suit, "t")}
+          <span class="stufe">${pos === ZIEL ? "🏁" : pos}</span>
+        </span>
+      </span>`;
+  }).join("");
+
+  // Trennlinien quer ueber alle Bahnen, genau zwischen zwei Stufen.
+  // Ohne die sieht man nicht, auf welcher Stufe ein Pferd steht.
+  const linien = Array.from(
+    { length: ZIEL },
+    (_, i) => `<span class="rowline" style="top:${i * SCHRITT + SCHRITT / 2 + KARTE_H / 2}px"></span>`
+  ).join("");
 
   const footer = binHost
-    ? `<button class="wide" data-a="flip">Nächste Karte 🂠</button>`
-    : `<p class="banner">${esc(playerById(g, g.hostId)?.name ?? "Der Host")} deckt auf.</p>`;
+    ? `<button class="wide" data-a="flip">Nächste Karte aufdecken</button>`
+    : `<p class="banner">${esc(hostName)} deckt auf.</p>`;
 
-  const hostName = playerById(g, g.hostId)?.name ?? "Host";
+  // Gezogene Karte und "wer ist dran" in einer Zeile - spart Platz.
+  const kopfleiste = `
+    <div class="racehead ${binHost ? "me" : ""}">
+      ${cardHtml(g.flipped, "t", { faceDown: !g.flipped })}
+      <span class="txt">
+        <b>${binHost ? "Du deckst auf" : `${esc(hostName)} deckt auf`}</b>
+        <i>${g.message ? esc(g.message) : "Gleich geht's los."}</i>
+      </span>
+    </div>`;
+
   return `
-    ${turnBar(binHost ? "Du deckst auf" : `${esc(hostName)} deckt auf`, binHost)}
-    ${gezogen}
-    ${g.message ? `<p class="msg">${esc(g.message)}</p>` : ""}
-    <div class="track">${kopf}${zeilen}</div>
+    ${kopfleiste}
+    <div class="track">
+      ${kopf}
+      <div class="lanes" style="height:${BAHN_H}px">
+        <span class="marks">${marken}</span>
+        ${bahnen}
+        ${linien}
+      </div>
+    </div>
     <div class="actions">${footer}</div>`;
 }
 

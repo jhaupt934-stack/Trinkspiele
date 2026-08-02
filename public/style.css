@@ -135,26 +135,33 @@ input.code {
 .av.emoji { background: var(--surface-3); font-size: 21px; }
 .av.sm.emoji { font-size: 15px; }
 
-/* --- Profilbild aussuchen --- */
+/* --- Profilbild aussuchen ---
+   Feste Hoehe statt aspect-ratio: aeltere iPhones kennen aspect-ratio nicht,
+   dann faellt der Knopf auf null Hoehe zusammen und ist nicht antippbar. */
 .avpick {
-  display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px;
+  display: flex; flex-wrap: wrap; gap: 8px;
   margin-bottom: 4px;
 }
 .avopt {
-  position: relative; aspect-ratio: 1; padding: 0;
+  position: relative; padding: 0; flex: none;
+  width: 52px; height: 52px;
   display: flex; align-items: center; justify-content: center;
-  font-size: 22px; line-height: 1; border-radius: 12px;
+  font-size: 30px; line-height: 1; border-radius: 14px;
   background: var(--surface); border: 2px solid var(--border); box-shadow: none;
 }
-.avopt.mine { border-color: var(--mint); background: var(--surface-2); opacity: 1; }
-.avopt.weg { opacity: .3; }
+.avopt.mine {
+  border-color: var(--mint); background: var(--surface-2); opacity: 1;
+  box-shadow: 0 0 0 3px rgba(46,230,197,.22);
+}
+.avopt.weg { opacity: .28; }
 .avopt.weg i {
-  position: absolute; right: -2px; bottom: -2px;
-  width: 15px; height: 15px; border-radius: 50%;
+  position: absolute; right: -3px; bottom: -3px;
+  width: 19px; height: 19px; border-radius: 50%;
   background: var(--danger); color: #fff;
-  font-style: normal; font-size: 9px; font-weight: 800;
+  font-style: normal; font-size: 11px; font-weight: 800;
   display: flex; align-items: center; justify-content: center;
 }
+.avhint { font-size: 12px; color: var(--muted); margin: 6px 0 0; font-weight: 600; }
 
 .panel {
   background: var(--surface); border: 1.5px solid var(--border);
@@ -224,6 +231,13 @@ input.code {
 .card.s  { width: 56px; height: 78px; border-radius: 6px; gap: 2px; }
 .card.s .rk { font-size: 25px; }
 .card.s .st { font-size: 21px; }
+
+/* Nur fuer die Rennbahn: Streckenkarte und Pferd haben genau diese Groesse,
+   damit sie nebeneinander auf einer Linie liegen. Die Zahlen muessen zu
+   SCHRITT/KARTE_H in app.js passen - test-ui.js prueft das. */
+.card.t  { width: 38px; height: 53px; border-radius: 5px; gap: 1px; }
+.card.t .rk { font-size: 18px; }
+.card.t .st { font-size: 15px; }
 
 .card.m  { width: 76px; height: 106px; border-radius: 8px; gap: 3px; }
 .card.m .rk { font-size: 34px; }
@@ -319,6 +333,11 @@ input.code {
 .tag-host {
   color: #04261F; background: var(--mint); font-size: 11px; font-weight: 800;
   text-transform: uppercase; letter-spacing: .6px; padding: 3px 9px; border-radius: 8px;
+}
+
+.version {
+  text-align: center; color: var(--muted); opacity: .5;
+  font-size: 12px; font-weight: 700; margin: 26px 0 0;
 }
 
 .greet { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
@@ -420,46 +439,126 @@ button.step {
 
 /* --- Pferderennen: die Bahn laeuft von oben nach unten --- */
 .track {
-  background: linear-gradient(170deg, var(--felt), var(--felt-2));
-  border: 5px solid var(--wood); border-radius: 22px;
-  padding: 8px 7px 12px; margin: 10px 0;
-  box-shadow: 0 10px 22px rgba(0,0,0,.45), inset 0 0 50px rgba(0,0,0,.2);
+  background: linear-gradient(170deg, #1B7A5C 0%, #13614A 55%, #0E4E3C 100%);
+  border-radius: 22px;
+  padding: 10px 10px 12px; margin: 8px 0;
+  box-shadow:
+    0 0 0 4px #6B4526, 0 0 0 5px rgba(0,0,0,.35),
+    0 12px 26px rgba(0,0,0,.5), inset 0 0 60px rgba(0,0,0,.28);
 }
-.rrow {
-  display: grid; grid-template-columns: 58px repeat(4, 1fr);
-  gap: 4px; align-items: center; min-height: 30px;
-}
-.rrow.head { min-height: 0; padding-bottom: 6px; }
-.rrow.startzeile { border-bottom: 2px dashed rgba(255,255,255,.45); padding-bottom: 4px; }
+/* Eine Farbe je Pferd - viel leichter zu verfolgen als zweimal rot,
+   zweimal schwarz. Die Farben stehen ausgeschrieben da; color-mix() waere
+   kuerzer, kennen aeltere Handys aber nicht. */
+.lane.hearts   { --bahn: #FF5C7A; }
+.lane.diamonds { --bahn: #FFA23C; }
+.lane.clubs    { --bahn: #4FC3F7; }
+.lane.spades   { --bahn: #A78BFA; }
 
-.rrow .mark { display: flex; align-items: center; justify-content: center; }
-.mark.start {
-  font-size: 10px; font-weight: 800; letter-spacing: 1px; color: rgba(255,255,255,.6);
-}
-.mark.ziel { font-size: 26px; }
+.lane.hearts   .trail { background: linear-gradient(180deg, rgba(255,92,122,.10), rgba(255,92,122,.45)); }
+.lane.diamonds .trail { background: linear-gradient(180deg, rgba(255,162,60,.10), rgba(255,162,60,.45)); }
+.lane.clubs    .trail { background: linear-gradient(180deg, rgba(79,195,247,.10), rgba(79,195,247,.45)); }
+.lane.spades   .trail { background: linear-gradient(180deg, rgba(167,139,250,.10), rgba(167,139,250,.45)); }
 
-.rrow .cell {
+.roundel.hearts   { background: #FF5C7A; }
+.roundel.diamonds { background: #FFA23C; }
+.roundel.clubs    { background: #4FC3F7; }
+.roundel.spades   { background: #A78BFA; }
+
+.rhead {
+  display: grid; grid-template-columns: 42px repeat(4, 1fr);
+  gap: 6px; align-items: end; padding-bottom: 8px;
+}
+.hcol { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.roundel {
+  width: 34px; height: 34px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  min-height: 26px; border-radius: 10px;
+  font-size: 20px; color: #1A1030; line-height: 1;
+  box-shadow: 0 2px 6px rgba(0,0,0,.4), inset 0 -2px 6px rgba(0,0,0,.18);
 }
-.rrow .cell.hier { background: rgba(255,255,255,.12); padding: 3px 0; }
-.rrow .cell.win { background: rgba(255,201,60,.3); box-shadow: 0 0 0 2px var(--gold) inset; }
-.rrow .cell.moved { box-shadow: 0 0 0 2px var(--mint) inset; }
 
-.hsuit { font-size: 26px; line-height: 1; }
-.hsuit.red { color: #FF6E85; }
-.hsuit.black { color: #DDD6FF; }
-.rrow.head .cell { flex-direction: column; gap: 3px; }
-.track .bets { gap: 3px; }
-.track .bet { font-size: 10px; padding: 1px 6px 1px 1px; }
-.track .bet .av.sm { width: 16px; height: 16px; font-size: 9px; }
-
-.drawn {
-  display: flex; align-items: center; justify-content: center; gap: 14px;
-  background: var(--surface); border: 1.5px solid var(--border);
-  border-radius: 18px; padding: 12px 16px; margin: 0 0 10px;
+.lanes { position: relative; display: grid; grid-template-columns: 42px repeat(4, 1fr); gap: 6px; }
+.marks { position: relative; }
+.mk {
+  position: absolute; left: 0; right: 0;
+  display: flex; align-items: center; justify-content: center;
 }
-.drawn .note { color: var(--text); font-size: 16px; font-weight: 800; }
+.mk-start {
+  font-size: 9px; font-weight: 800; letter-spacing: 1.2px;
+  color: rgba(255,255,255,.55);
+}
+.mk-ziel { font-size: 24px; }
+
+/* Eine Bahn: dunkler Streifen, davor die farbige Spur bis zum Pferd.
+   Bewusst ohne overflow:hidden, sonst wird die Stufenzahl am Rand
+   abgeschnitten. Die Ecken runden Spur und Ziellinie selbst ab. */
+.lane {
+  position: relative; border-radius: 14px;
+  background: linear-gradient(180deg, rgba(0,0,0,.3), rgba(0,0,0,.12));
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.07);
+}
+.lane .trail {
+  position: absolute; left: 0; right: 0; top: 0;
+  border-radius: 14px 14px 0 0;
+  border-bottom: 2px solid var(--bahn);
+  transition: height .35s cubic-bezier(.3,1.2,.5,1);
+}
+.lane .ziellinie {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 14px;
+  border-radius: 0 0 14px 14px;
+  background: #241C4A;
+  background-image: repeating-conic-gradient(#F4F0FF 0 25%, #241C4A 0 50%);
+  background-size: 14px 14px;
+  opacity: .85;
+}
+.lane .horse {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  transition: top .35s cubic-bezier(.3,1.2,.5,1);
+  z-index: 2;
+}
+/* Die Stufenzahl direkt am Pferd - so muss niemand Felder abzaehlen. */
+.lane .stufe {
+  position: absolute; top: -5px; right: -7px;
+  min-width: 19px; height: 19px; padding: 0 3px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 10px; background: var(--bahn); color: #1A1030;
+  font-size: 12px; font-weight: 800; line-height: 1;
+  box-shadow: 0 2px 5px rgba(0,0,0,.45);
+}
+.lane.win .stufe { background: var(--gold); }
+
+/* Trennlinien zwischen den Stufen, quer ueber alle Bahnen */
+.rowline {
+  position: absolute; left: 0; right: 0; height: 1px; z-index: 1;
+  background: rgba(255,255,255,.16); pointer-events: none;
+}
+.lane.moved .horse .card { box-shadow: 0 0 0 3px var(--bahn), 0 4px 12px rgba(0,0,0,.5); }
+.lane.win {
+  box-shadow: inset 0 0 0 2px var(--gold), 0 0 22px rgba(255,201,60,.35);
+}
+.lane.win .horse .card { box-shadow: 0 0 0 3px var(--gold), 0 4px 14px rgba(0,0,0,.5); }
+
+
+/* Wer gesetzt hat: nur Gesichter, feste Hoehe, hoechstens drei.
+   Sonst werden die vier Spalten unterschiedlich hoch. */
+.bmini {
+  display: flex; align-items: center; justify-content: center;
+  height: 16px; font-size: 13px; line-height: 1; overflow: hidden;
+}
+.bmini b { font-size: 10px; font-weight: 800; color: rgba(255,255,255,.7); margin-left: 1px; }
+
+/* Gezogene Karte und "wer ist dran" in einer Zeile */
+.racehead {
+  display: flex; align-items: center; gap: 14px;
+  background: var(--surface-2); border: 1.5px solid var(--border-strong);
+  border-radius: 16px; padding: 8px 12px; margin: 0 0 8px;
+}
+.racehead.me { border-color: var(--mint); }
+.racehead .txt { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.racehead .txt b { font-size: 17px; font-weight: 800; }
+.racehead.me .txt b { color: var(--mint); }
+.racehead .txt i {
+  font-style: normal; font-size: 13px; color: var(--muted); font-weight: 600; line-height: 1.35;
+}
 .winner { display: flex; justify-content: center; margin: 10px 0 16px; }
 
 .offline-bar {
