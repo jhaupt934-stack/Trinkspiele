@@ -25,7 +25,14 @@
   --wood: #7A4E2A;
 }
 
-* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+/* touch-action: manipulation schaltet den Doppeltipp-Zoom ab. Ohne das
+   zoomt das Handy rein, wenn man zweimal schnell hintereinander tippt. */
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+button { user-select: none; -webkit-user-select: none; }
 
 html, body {
   margin: 0;
@@ -296,36 +303,35 @@ input.code {
 @keyframes toastIn  { from { transform: translateY(-90px); opacity: 0 } to { transform: none; opacity: 1 } }
 @keyframes toastOut { to { transform: translateY(-90px); opacity: 0 } }
 
+/* --- Wer ist dran? --- */
+.turn {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 12px 14px; margin: 0 0 14px; border-radius: 15px;
+  font-size: 17px; font-weight: 800; text-align: center;
+  background: var(--surface-2); color: var(--muted);
+  border: 1.5px solid var(--border-strong);
+}
+.turn.me {
+  background: linear-gradient(135deg, var(--mint), #17B79B);
+  color: #04261F; border-color: transparent;
+  box-shadow: 0 6px 18px rgba(46, 230, 197, .28);
+}
+
 /* --- Spielauswahl --- */
-.games { display: flex; flex-direction: column; gap: 12px; margin-bottom: 8px; }
+.games { display: flex; gap: 10px; margin-bottom: 4px; }
 .gamecard {
-  display: block; width: 100%; padding: 0; overflow: hidden; text-align: left;
-  background: var(--surface); border: 2px solid var(--border); border-radius: 20px;
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 14px 8px; text-align: center;
+  background: var(--surface); border: 2px solid var(--border); border-radius: 18px;
   box-shadow: none; color: var(--text);
 }
 .gamecard.sel { border-color: var(--mint); background: var(--surface-2); }
-.gamecard .pic { background: var(--surface-3); line-height: 0; }
-.gamecard .pic svg { width: 100%; height: auto; display: block; }
-.gamecard .txt { padding: 13px 15px; }
-.gamecard .nm { font-size: 19px; font-weight: 800; }
-.gamecard .kz { font-size: 14px; color: var(--muted); font-weight: 600; margin-top: 3px; }
-.gamecard .dr { font-size: 12px; color: var(--muted); font-weight: 600; margin-top: 6px; opacity: .8; }
+.gamecard:disabled { opacity: 1; }
+.gamecard:disabled:not(.sel) { opacity: .35; }
+.gamecard .emo { font-size: 38px; line-height: 1.1; }
+.gamecard .nm { font-size: 16px; font-weight: 800; }
+.gamecard .kz { font-size: 12px; color: var(--muted); font-weight: 600; }
 .gamecard.sel .nm::after { content: " ✓"; color: var(--mint); }
-
-/* Das gewaehlte Spiel oben in der Lobby */
-.picked {
-  display: flex; align-items: center; gap: 12px; margin: 14px 0 8px;
-  background: var(--surface); border: 1.5px solid var(--border);
-  border-radius: 18px; padding: 10px 12px;
-}
-.picked .pic { width: 74px; flex: none; line-height: 0; border-radius: 12px; overflow: hidden; }
-.picked .pic svg { width: 100%; height: auto; display: block; }
-.picked .txt { flex: 1; min-width: 0; }
-.picked .nm { font-size: 17px; font-weight: 800; }
-.picked .kz {
-  font-size: 12px; color: var(--muted); font-weight: 600;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
 
 /* --- Regeln --- */
 .rules {

@@ -34,7 +34,7 @@ import {
 } from "/game/race.js";
 import { applyAction, mayAct } from "/game/actions.js";
 import { isRed, suitSymbol, suitName } from "/game/deck.js";
-import { SPIELE, spielBild, regelnHtml } from "/games-info.js";
+import { SPIELE, spielName, spielEmoji, regelnHtml } from "/games-info.js";
 
 const el = document.getElementById("app");
 
@@ -249,46 +249,40 @@ function homeScreen() {
     </div>`;
 }
 
-/** Spielauswahl. Erst nach dem Antippen kommen Regeln und Weiter zum Vorschein. */
-function gamesScreen() {
-  const kacheln = SPIELE.map(
-    (s) => `
-    <button class="gamecard ${S.spiel === s.id ? "sel" : ""}" data-a="pickGame" data-id="${s.id}">
-      <div class="pic">${spielBild(s.id)}</div>
-      <div class="txt">
-        <div class="nm">${esc(s.name)}</div>
-        <div class="kz">${esc(s.kurz)}</div>
-        <div class="dr">${esc(s.dauer)} · 2 bis ${MAX_PLAYERS} Spieler</div>
-      </div>
-    </button>`
-  ).join("");
-
-  const gewaehlt = SPIELE.find((s) => s.id === S.spiel);
-
-  return `
-    <h2>Welches Spiel?</h2>
-    <p class="sub">${
-      S.mode === "online" ? "Du machst gleich die Lobby auf." : "Ihr reicht ein Gerät herum."
-    }</p>
-    <div class="games">${kacheln}</div>
-    <div class="actions">
-      <div class="row">
-        <button class="secondary" data-a="rules" data-id="${S.spiel}">📖 Regeln</button>
-        <button data-a="gameNext">${esc(gewaehlt.name)} spielen</button>
-      </div>
-      <button class="ghost wide" data-a="home">Zurück</button>
-    </div>`;
+/**
+ * Die Spielauswahl. Steht direkt da, wo gestartet wird: online in der Lobby
+ * beim Host, lokal auf dem Namens-Bildschirm.
+ */
+function gamePicker(aktiv, waehlbar = true) {
+  return (
+    `<div class="games">` +
+    SPIELE.map(
+      (s) => `
+      <button class="gamecard ${s.id === aktiv ? "sel" : ""}" ${
+        waehlbar ? `data-a="pickGame" data-id="${s.id}"` : "disabled"
+      }>
+        <span class="emo">${s.emoji}</span>
+        <span class="nm">${esc(s.name)}</span>
+        <span class="kz">${esc(s.kurz)}</span>
+      </button>`
+    ).join("") +
+    `</div>`
+  );
 }
 
 function rulesScreen() {
   const s = SPIELE.find((x) => x.id === S.rulesFor) ?? SPIELE[0];
   return `
-    <h2>${esc(s.name)}</h2>
-    <p class="sub">${esc(s.kurz)}</p>
+    <h2>${s.emoji} ${esc(s.name)}</h2>
     <div class="rules">${regelnHtml(s.id)}</div>
     <div class="actions">
       <button class="wide" data-a="rulesBack">Alles klar</button>
     </div>`;
+}
+
+/** Die auffällige Zeile ganz oben: wer ist dran? */
+function turnBar(text, ichBinDran) {
+  return `<div class="turn ${ichBinDran ? "me" : ""}">${text}</div>`;
 }
 
 function setupScreen() {
@@ -304,36 +298,32 @@ function setupScreen() {
 
   return `
     <h2>Alle an einem Handy</h2>
-    <p class="sub">Namen eintragen, dann wird reihum weitergereicht.</p>
     ${rows}
     ${S.names.length < MAX_PLAYERS ? `<button class="secondary wide" data-a="add">+ Spieler</button>` : ""}
-    <div style="height:20px"></div>
-    <button class="wide" data-a="start">Los geht's 🎉</button>
-    <button class="ghost wide" data-a="home">Zurück</button>`;
+    <p class="label">Spiel</p>
+    ${gamePicker(S.spiel)}
+    <div class="actions">
+      <div class="row">
+        <button class="secondary" data-a="rules" data-id="${S.spiel}">📖 Regeln</button>
+        <button data-a="start">${spielEmoji(S.spiel)} Los geht's</button>
+      </div>
+      <button class="ghost wide" data-a="home">Zurück</button>
+    </div>`;
 }
 
 function lobbyScreen() {
   // Warteraum
   if (S.lobby) {
     const me = S.lobby.players.find((p) => p.id === S.myId);
+    const binHost = !!me?.isHost;
     const enough = S.lobby.players.length >= MIN_PLAYERS;
-    const spiel = SPIELE.find((s) => s.id === (S.lobby.spiel ?? "bus")) ?? SPIELE[0];
+    const spiel = S.lobby.spiel ?? "bus";
+
     return `
       <h2>Eure Lobby</h2>
-      <p class="sub">Diesen Code an deine Freunde weitergeben:</p>
       <div class="codebox"><div class="code">${S.lobby.code}</div></div>
 
-      <div class="picked">
-        <div class="pic sm">${spielBild(spiel.id)}</div>
-        <div class="txt">
-          <div class="nm">${esc(spiel.name)}</div>
-          <div class="kz">${esc(spiel.kurz)}</div>
-        </div>
-        <button class="ghost small" data-a="rules" data-id="${spiel.id}">Regeln</button>
-      </div>
-      ${me?.isHost ? `<button class="ghost wide" data-a="changeGame">Anderes Spiel wählen</button>` : ""}
-
-      ${!S.connected ? `<p class="error">Verbindung unterbrochen, versuche neu zu verbinden…</p>` : ""}
+      ${!S.connected ? `<p class="error">Verbindung unterbrochen…</p>` : ""}
       <p class="label">Dabei (${S.lobby.players.length})</p>
       ${S.lobby.players
         .map(
@@ -346,29 +336,37 @@ function lobbyScreen() {
         </div>`
         )
         .join("")}
+
+      <p class="label">${binHost ? "Spiel wählen" : "Spiel"}</p>
+      ${gamePicker(spiel, binHost)}
       ${S.error ? `<p class="error">${esc(S.error)}</p>` : ""}
-      <div style="height:20px"></div>
-      ${
-        me?.isHost
-          ? `<button class="wide" data-a="startOnline" ${enough ? "" : "disabled"}>${
-              enough ? "Spiel starten 🎉" : `Warte auf Spieler (min. ${MIN_PLAYERS})`
-            }</button>`
-          : `<p class="banner">Der Host startet das Spiel.</p>`
-      }
-      <button class="ghost wide" data-a="leave">Lobby verlassen</button>`;
+
+      <div class="actions">
+        ${
+          binHost
+            ? `<div class="row">
+                 <button class="secondary" data-a="rules" data-id="${spiel}">📖 Regeln</button>
+                 <button data-a="startOnline" ${enough ? "" : "disabled"}>${
+                 enough ? `${spielEmoji(spiel)} Starten` : `Min. ${MIN_PLAYERS} Spieler`
+               }</button>
+               </div>`
+            : `<div class="row">
+                 <button class="secondary" data-a="rules" data-id="${spiel}">📖 Regeln</button>
+                 <button class="secondary" disabled>Host startet…</button>
+               </div>`
+        }
+        <button class="ghost wide" data-a="leave">Lobby verlassen</button>
+      </div>`;
   }
 
-  // Erstellen oder beitreten - der Name steht ja schon fest
-  const spiel = SPIELE.find((s) => s.id === S.spiel) ?? SPIELE[0];
+  // Lobby aufmachen oder beitreten - das Spiel wird erst drinnen gewählt.
   return `
     <h2>Online mit Freunden</h2>
-    <p class="sub">Du spielst als <strong>${esc(S.name)}</strong>.
-    Deine neue Lobby wird für <strong>${esc(spiel.name)}</strong> aufgemacht –
-    wer beitritt, spielt mit, egal welches Spiel dort läuft.</p>
+    <p class="sub">Du spielst als <strong>${esc(S.name)}</strong>.</p>
 
     <button class="wide" data-a="create">Neue Lobby erstellen</button>
 
-    <p class="sub" style="text-align:center;margin:22px 0 12px">oder einer Lobby beitreten</p>
+    <p class="sub" style="text-align:center;margin:22px 0 12px">oder beitreten</p>
     <input id="codeInput" class="code" value="${esc(S.code)}" placeholder="CODE" maxlength="4">
     <div style="height:12px"></div>
     <button class="secondary wide" data-a="join">Beitreten</button>
@@ -447,9 +445,21 @@ function guessScreen(g) {
       .join("")}</div>`;
   else footer = `<p class="banner">${esc(turn.name)} ist dran.</p>`;
 
+  const ichDran = S.mode === "local" || turn.id === S.myId;
+  const verteiler = distributorIds(g)[0];
+  const dranText =
+    pendingTotal(g) > 0
+      ? verteiler === S.myId && S.mode !== "local"
+        ? "Du verteilst"
+        : `${esc(playerById(g, verteiler)?.name ?? "")} verteilt`
+      : ichDran && S.mode !== "local"
+      ? "Du bist dran"
+      : `${esc(turn.name)} ist dran`;
+
   return `
+    ${turnBar(dranText, ichDran)}
     <h2>${ROUND_TITLES[g.round]}</h2>
-    <p class="sub">Richtig = ${sips} verteilen, falsch = ${sips} selber trinken</p>
+    <p class="sub">${sips} Schluck${sips > 1 ? "e" : ""}</p>
     ${g.message ? `<p class="msg">${esc(g.message)}</p>` : ""}
     ${seatsHtml(others, turn.id)}
     <div class="felt">
@@ -536,9 +546,22 @@ function rowsScreen(g) {
   const footer =
     panels + ablegen + (S.mode === "local" ? "" : othersDistributing(g, S.myId)) + steuerung;
 
+  const meinePendings = pendingFor(g, S.myId) > 0;
+  const dranText = offen
+    ? meinePendings && S.mode !== "local"
+      ? "Du verteilst"
+      : `${distributorIds(g)
+          .map((id) => esc(playerById(g, id).name))
+          .join(" & ")} verteil${distributorIds(g).length > 1 ? "en" : "t"}`
+    : matches.length > 0 && g.revealedNow
+    ? `Ablegen: ${matches.map((p) => esc(p.name)).join(", ")}`
+    : binHost
+    ? "Du deckst auf"
+    : `${esc(hostName(g))} deckt auf`;
+
   return `
+    ${turnBar(dranText, meinePendings || matches.some((p) => p.id === meId()) || binHost)}
     <h2>Die zwei Reihen</h2>
-    <p class="sub">Gleicher Kartenwert = ablegen. Wenig Karten ist gut.</p>
     ${g.message ? `<p class="msg">${esc(g.message)}</p>` : ""}
     ${seatsHtml(others, distributorIds(g))}
     <div class="felt">
@@ -576,9 +599,9 @@ function tiebreakScreen(g) {
       : `<button class="wide" data-a="tieFlip">Nächste Karte aufdecken</button>`;
 
   return `
+    ${turnBar(darf ? "Du deckst auf" : `${esc(hostName(g))} deckt auf`, darf)}
     <h2>Stechen ⚔️</h2>
-    <p class="sub">Gleichstand zwischen <strong>${esc(namen.join(", "))}</strong> –
-       wer übrig bleibt, fährt Bus.</p>
+    <p class="sub">${esc(namen.join(" gegen "))}</p>
     ${g.message ? `<p class="msg">${esc(g.message)}</p>` : ""}
     ${seatsHtml(others, null)}
     <div class="felt">${mitte}</div>
@@ -641,9 +664,10 @@ function pyramidScreen(g) {
   }
 
   return `
-    <h2>Die Pyramide 🚌</h2>
-    <p class="sub">${esc(driver.name)} fährt Bus – Reihe ${Math.min(level + 1, 5)} von 5,
-       Versuch ${g.attempts}, noch ${g.deck.length} Karten im Stapel</p>
+    ${turnBar(iDrive ? "Du fährst Bus 🚌" : `${esc(driver.name)} fährt Bus 🚌`, iDrive)}
+    <h2>Die Pyramide</h2>
+    <p class="sub">Reihe ${Math.min(level + 1, 5)} von 5 · Versuch ${g.attempts} ·
+       ${g.deck.length} Karten</p>
     ${g.message ? `<p class="msg">${esc(g.message)}</p>` : ""}
     ${seatsHtml(others, driver.id)}
     <div class="felt">${pyramid}</div>
@@ -700,18 +724,17 @@ function betScreen(g) {
     </button>`
   ).join("");
 
+  // Wichtig: zuerst prüfen, ob überhaupt noch jemand fehlt. Sonst bekommt der
+  // Host online nie den Startknopf zu sehen und es geht nicht weiter.
   let footer;
-  if (!wer) {
+  if (fehlen.length === 0) {
     footer = binHost
-      ? `<button class="wide" data-a="startRace">Rennen starten 🏁</button>`
-      : `<p class="banner">Alle haben gesetzt. ${esc(
-          playerById(g, g.hostId)?.name ?? "Der Host"
-        )} startet das Rennen.</p>`;
+      ? `<button class="wide" data-a="startRace">🏁 Rennen starten</button>`
+      : `<p class="banner">${esc(playerById(g, g.hostId)?.name ?? "Der Host")} startet gleich.</p>`;
   } else if (meine && S.mode !== "local") {
     // Schon gesetzt und getrunken - jetzt gibt es nichts mehr zu tun.
-    footer = `<p class="banner">Du hast <strong>${meine.amount}</strong> auf
-      <strong>${suitName(meine.suit)}</strong> gesetzt und getrunken.
-      Warte noch auf: ${fehlen.map((p) => esc(p.name)).join(", ")}</p>`;
+    footer = `<p class="banner">Du: <strong>${meine.amount}</strong> auf
+      <strong>${suitName(meine.suit)}</strong> ✓</p>`;
   } else {
     const schnell = [1, 2, 3, 5, 10, 20].filter((n) => n <= MAX_EINSATZ);
     footer = `
@@ -739,17 +762,19 @@ function betScreen(g) {
         ${betrag} auf ${entwurf ? suitName(entwurf) : "…"} setzen &amp; trinken 🍺</button>`;
   }
 
+  const dranText =
+    fehlen.length === 0
+      ? "Alle haben gesetzt 🏁"
+      : S.mode === "local"
+      ? `${esc(wer.name)} setzt`
+      : meine
+      ? `Warten auf ${fehlen.map((p) => esc(p.name)).join(", ")}`
+      : "Du bist dran – setzen";
+
   return `
+    ${turnBar(dranText, S.mode === "local" || (!meine && fehlen.length > 0))}
     <h2>Wetten 🐎</h2>
-    <p class="sub">Der Einsatz wird <strong>sofort getrunken</strong> – auch von
-    den späteren Gewinnern. Gewinnt dein Pferd, darfst du am Ende das Doppelte
-    verteilen.</p>
-    <p class="sub">${
-      fehlen.length
-        ? `Es fehlen noch: ${fehlen.map((p) => esc(p.name)).join(", ")}`
-        : "Alle haben gesetzt und getrunken."
-    }</p>
-    ${g.message ? `<p class="msg">${esc(g.message)}</p>` : ""}
+    <p class="sub">Einsatz sofort trinken. Gewinnt dein Pferd, verteilst du das Doppelte.</p>
     <div class="horses">${pferde}</div>
     <div class="actions">${footer}</div>`;
 }
@@ -793,13 +818,9 @@ function raceScreen(g) {
     ? `<button class="wide" data-a="flip">Nächste Karte aufdecken</button>`
     : `<p class="banner">${esc(playerById(g, g.hostId)?.name ?? "Der Host")} deckt auf.</p>`;
 
+  const hostName = playerById(g, g.hostId)?.name ?? "Host";
   return `
-    <h2>Das Rennen 🏇</h2>
-    <p class="sub">${
-      g.nextSide > STRECKENKARTEN
-        ? "Alle Streckenkarten sind offen – jetzt geht's nur noch nach vorne."
-        : `Streckenkarte ${g.nextSide} kommt hoch, sobald alle Pferde auf Höhe ${g.nextSide} sind.`
-    }</p>
+    ${turnBar(binHost ? "Du deckst auf" : `${esc(hostName)} deckt auf`, binHost)}
     ${g.message ? `<p class="msg">${esc(g.message)}</p>` : ""}
     <div class="track">${kopf}${bahnen}</div>
     ${gezogen}
@@ -927,7 +948,6 @@ function render() {
   let html;
   if (S.screen === "name") html = nameScreen();
   else if (S.screen === "home") html = homeScreen();
-  else if (S.screen === "games") html = gamesScreen();
   else if (S.screen === "rules") html = rulesScreen();
   else if (S.screen === "setup") html = setupScreen();
   else if (S.screen === "lobby") html = lobbyScreen();
@@ -1048,17 +1068,21 @@ el.addEventListener("click", (e) => {
 
     case "local":
       S.mode = "local";
-      S.screen = "games";
+      S.screen = "setup";
+      if (!S.names[0]) S.names[0] = S.name; // eigener Name steht schon in Feld 1
       break;
 
     case "online":
       S.mode = "online";
-      S.screen = "games";
+      S.screen = "lobby";
+      connect();
       break;
 
     // --- Spielauswahl ---
     case "pickGame":
       S.spiel = t.dataset.id;
+      // In der Lobby entscheidet der Host für alle - der Server sagt es weiter.
+      if (S.mode === "online" && S.lobby) S.socket?.emit("setGame", { spiel: S.spiel });
       break;
 
     case "rules":
@@ -1067,23 +1091,7 @@ el.addEventListener("click", (e) => {
       break;
 
     case "rulesBack":
-      S.screen = S.lobby && S.mode === "online" ? "lobby" : "games";
-      break;
-
-    case "gameNext":
-      if (S.mode === "online") {
-        S.screen = "lobby";
-        connect();
-        if (S.lobby) S.socket?.emit("setGame", { spiel: S.spiel }); // schon in der Lobby
-      } else {
-        S.screen = "setup";
-        if (!S.names[0]) S.names[0] = S.name; // eigener Name steht schon in Feld 1
-      }
-      break;
-
-    case "changeGame": // aus der Lobby heraus umstellen
-      S.spiel = S.lobby?.spiel ?? S.spiel;
-      S.screen = "games";
+      S.screen = S.mode === "online" ? "lobby" : "setup";
       break;
 
     case "add":

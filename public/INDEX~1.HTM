@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<!-- maximum-scale + user-scalable: sonst zoomt ein schneller Doppeltipp rein -->
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#141031">
+<title>Trinkspiele</title>
+
+<link rel="stylesheet" href="/style.css">
+<link rel="manifest" href="/manifest.webmanifest">
+
+<!-- Icon fuer den Homescreen -->
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
+<link rel="icon" type="image/png" sizes="64x64" href="/favicon.png">
+
+<!-- Ohne diese Zeilen startet die Seite auf dem iPhone nicht im Vollbild -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Trinkspiele">
+<meta name="mobile-web-app-capable" content="yes">
+</head>
+<body>
+  <div id="app" class="app"></div>
+  <script src="/socket.io/socket.io.js"></script>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
