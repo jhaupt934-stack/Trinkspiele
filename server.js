@@ -22,11 +22,14 @@ import { handleAction } from "./game/actions.js";
 const SPIELE = { bus: initGame, race: initRace };
 const istSpiel = (s) => Object.prototype.hasOwnProperty.call(SPIELE, s);
 
-// Profilbilder. Dieselbe Liste steht in public/app.js - test-ui.js prueft,
-// dass die beiden nicht auseinanderlaufen.
+// Profilbilder: Gesichter mit verschiedenen Hauttoenen, Frisuren und Baerten,
+// damit man sie am Tisch sofort auseinanderhaelt.
+// Dieselbe Liste steht in public/app.js - test-ui.js prueft, dass beide gleich sind.
 const AVATARE = [
-  "🦊", "🐼", "🐸", "🐙", "🦁", "🐷", "🐵", "🦉",
-  "🐺", "🦄", "🐨", "🐯", "🦖", "🐬", "🦩", "🐝",
+  "👩🏻‍🦰", "🧔🏻", "👱🏼", "👨🏻‍🦲",
+  "👩🏼‍🦱", "🧔🏽", "👨🏽", "👩🏽",
+  "👳🏽", "🧕🏽", "👨🏾‍🦱", "👩🏾",
+  "🧔🏿", "👩🏿‍🦳", "👨🏿‍🦲", "👵🏼",
 ];
 
 /** Das erste Bild, das in dieser Lobby noch keiner hat. */
