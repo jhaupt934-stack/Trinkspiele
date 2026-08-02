@@ -5,21 +5,15 @@
 // dadurch kann es keine zwei Regelwerke geben, die auseinanderlaufen.
 //
 // Ablauf:
-//   1. "guess"   - 4 Runden, jeder zieht reihum eine eigene Karte und raet:
-//                  rot/schwarz (1), hoeher/niedriger (2), dazwischen/ausserhalb (3),
-//                  Symbol schon dabei (4). Richtig = verteilen, falsch = selber trinken.
-//   2. "rows"    - zwei Reihen a 4 Karten (1-4 Schluecke): "selber trinken" und
-//                  "verteilen". Passende eigene Karten werden abgelegt.
-//   3. "pyramid" - wer die meisten Karten uebrig hat, sucht sich unten eine Karte
-//                  und geht nach oben - immer nur auf eine angrenzende Karte.
-//                  Bildkarte = zurueck nach unten, Schluecke = wie weit man kam.
+//   1. "guess"    - 4 Runden, jeder zieht reihum eine eigene Karte und raet:
+//                   rot/schwarz (1), hoeher/niedriger (2), dazwischen/ausserhalb (3),
+//                   Symbol schon dabei (4). Richtig = verteilen, falsch = selber trinken.
+//   2. "rows"     - zwei Reihen a 4 Karten (1-4 Schluecke): "selber trinken" und
+//                   "verteilen". Passende eigene Karten werden abgelegt.
+//   3. "tiebreak" - nur falls mehrere gleich viele Karten uebrig haben (siehe unten).
+//   4. "pyramid"  - der Verlierer kaempft sich von unten nach oben.
 //
 // Verteilte Schluecke darf man sich nie selbst geben.
-//
-// KARTENDECK: Es wird durchgehend EIN Deck benutzt. Handkarten, die zwei Reihen und
-// die Pyramide kommen aus demselben Stapel, es kann also keine Karte doppelt auf dem
-// Tisch liegen. Reicht der Reststapel fuer eine neue Pyramide nicht (bei 8 Spielern
-// sind schon 40 Karten weg), werden alle abgelegten Karten neu gemischt.
 
 import { createDeck, createShuffledDeck, draw, isRed, rankValue, shuffle } from "./deck.js";
 
@@ -31,7 +25,7 @@ export const ROUND_TITLES = [
 ];
 
 const PYRAMID_ROWS = [5, 4, 3, 2, 1];
-const PYRAMID_CARDS = PYRAMID_ROWS.reduce((a, b) => a + b, 0);
+const PYRAMID_CARDS = PYRAMID_ROWS.reduce((a, b) => a + b, 0); // 15
 const FACE = new Set(["J", "Q", "K"]);
 
 export const isFaceCard = (card) => FACE.has(card.rank);
@@ -57,6 +51,8 @@ export function initGame(players, rng, hostId = null) {
     round: 0,
     turn: 0,
     pendingSips: 0,
+    dist: 0,
+    lastSip: null,
     message: null,
   };
 }
@@ -74,6 +70,74 @@ export function distributorId(g) {
 export function sipTargets(g) {
   const from = distributorId(g);
   return g.players.filter((p) => p.id !== from);
+}
+
+/**
+ * Alle Karten, die gerade irgendwo liegen: auf den Haenden, in den zwei Reihen,
+ * im Stechen aufgedeckt oder in der Pyramide. Wird gebraucht, damit beim
+ * Nachmischen keine Karte ein zweites Mal ins Spiel kommt.
+ */
+function inPlayIds(g) {
+  const ids = new Set();
+  for (const p of g.players) for (const c of p.cards) ids.add(c.id);
+  for (const c of g.drinkRow ?? []) ids.add(c.card.id);
+  for (const c of g.giveRow ?? []) ids.add(c.card.id);
+  if (g.flipped) ids.add(g.flipped.id);
+  for (const k of Object.keys(g.drawn ?? {})) ids.add(g.drawn[k].id);
+  if (g.phase === "pyramid") for (const row of g.rows ?? []) for (const c of row) ids.add(c.id);
+  for (const c of g.deck) ids.add(c.id);
+  return ids;
+}
+
+/**
+ * Nachschub, wenn der Stapel nicht mehr reicht: die abgelegten Karten werden
+ * gemischt und unter den Reststapel gelegt - wie wenn man am Tisch den
+ * Ablagestapel wieder aufnimmt. Karten, die gerade offen liegen, bleiben aussen vor.
+ */
+function refill(g, need) {
+  if (g.deck.length >= need) return g.deck;
+  const inPlay = inPlayIds(g);
+  const abgelegt = shuffle(createDeck().filter((c) => !inPlay.has(c.id)));
+  return [...g.deck, ...abgelegt];
+}
+
+// ---------------------------------------------------------------------------
+// Benachrichtigung "du hast Schlucke bekommen"
+// ---------------------------------------------------------------------------
+
+/**
+ * Merkt sich, wer wem gerade Schlucke gegeben hat. Mehrere Schlucke aus
+ * derselben Verteilrunde an dieselbe Person werden zusammengezaehlt, damit
+ * nicht drei Meldungen hintereinander aufpoppen.
+ */
+function recordSip(g, fromId, toId) {
+  const prev = g.lastSip;
+  const sameRun = prev && prev.dist === (g.dist ?? 0) && prev.fromId === fromId && prev.toId === toId;
+  return {
+    dist: g.dist ?? 0,
+    fromId,
+    toId,
+    count: sameRun ? prev.count + 1 : 1,
+    seq: (prev?.seq ?? 0) + 1,
+  };
+}
+
+export function handOutSip(g, targetId) {
+  const fromId = distributorId(g);
+  if (targetId === fromId || g.pendingSips <= 0) return g;
+
+  const players = g.players.map((p) => (p.id === targetId ? { ...p, sips: p.sips + 1 } : p));
+  const left = g.pendingSips - 1;
+  const lastSip = recordSip(g, fromId, targetId);
+
+  if (g.phase === "guess") {
+    if (left > 0) return { ...g, players, lastSip, pendingSips: left };
+    return nextTurn({ ...g, players, lastSip, pendingSips: 0 }, null);
+  }
+  if (g.phase === "rows") {
+    return { ...g, players, lastSip, pendingSips: left, pendingFromId: left > 0 ? g.pendingFromId : null };
+  }
+  return g;
 }
 
 // ---------------------------------------------------------------------------
@@ -99,8 +163,7 @@ export function makeGuess(g, guess) {
     case 1: {
       const ref = rankValue(own[0].rank);
       const cur = rankValue(card.rank);
-      // Gleicher Wert zaehlt als falsch.
-      correct = cur !== ref && guess === (cur > ref ? "higher" : "lower");
+      correct = cur !== ref && guess === (cur > ref ? "higher" : "lower"); // gleicher Wert = falsch
       break;
     }
     case 2: {
@@ -131,6 +194,7 @@ export function makeGuess(g, guess) {
       players,
       deck: rest,
       pendingSips: sips,
+      dist: (g.dist ?? 0) + 1,
       message: `${player.name} hat richtig geraten und verteilt ${sips} Schluck${plural}.`,
     };
   }
@@ -139,22 +203,6 @@ export function makeGuess(g, guess) {
     { ...g, players, deck: rest },
     `${player.name} lag daneben und trinkt ${sips} Schluck${plural}.`
   );
-}
-
-export function handOutSip(g, targetId) {
-  if (targetId === distributorId(g) || g.pendingSips <= 0) return g;
-
-  const players = g.players.map((p) => (p.id === targetId ? { ...p, sips: p.sips + 1 } : p));
-  const left = g.pendingSips - 1;
-
-  if (g.phase === "guess") {
-    if (left > 0) return { ...g, players, pendingSips: left };
-    return nextTurn({ ...g, players, pendingSips: 0 }, null);
-  }
-  if (g.phase === "rows") {
-    return { ...g, players, pendingSips: left, pendingFromId: left > 0 ? g.pendingFromId : null };
-  }
-  return g;
 }
 
 function nextTurn(g, message) {
@@ -255,6 +303,7 @@ export function discardCard(g, playerId) {
     players,
     pendingSips: value,
     pendingFromId: playerId,
+    dist: (g.dist ?? 0) + 1,
     message: `${player.name} legt ab und verteilt ${value} Schluck${plural}.`,
   };
 }
@@ -262,51 +311,147 @@ export function discardCard(g, playerId) {
 export function nextRow(g) {
   if (g.phase !== "rows" || g.pendingSips > 0) return g;
   const cursor = g.cursor + 1;
-  if (cursor >= g.order.length) return startPyramid({ ...g, cursor, revealedNow: false });
+  if (cursor >= g.order.length) return decideDriver({ ...g, cursor, revealedNow: false });
   return { ...g, cursor, revealedNow: false, message: null };
 }
 
 // ---------------------------------------------------------------------------
-// Phase 3 – Die Pyramide
+// Phase 3 – Wer muss fahren?
 // ---------------------------------------------------------------------------
 
 /**
- * Liefert einen Stapel mit mindestens `need` Karten und nimmt dabei nie eine
- * Karte, die vor einem Spieler liegt. Reicht der Rest nicht, wird alles
- * Abgelegte neu gemischt - so wie am echten Tisch.
+ * Es faehrt, wer die meisten Karten uebrig hat. Bei Gleichstand entscheidet ein
+ * Stechen: Es wird so lange je eine Karte aufgedeckt, bis nur noch einer uebrig
+ * ist - wer ablegen kann, ist raus. Geht das nicht mehr auf (die passenden Karten
+ * sind nicht mehr im Stapel), zieht jeder eine Karte und der niedrigste faehrt.
  */
-function deckWithAtLeast(g, need) {
-  if (g.deck.length >= need) return g.deck;
-  const inHands = new Set();
-  for (const p of g.players) for (const c of p.cards) inHands.add(c.id);
-  return shuffle(createDeck().filter((c) => !inHands.has(c.id)));
+function decideDriver(g) {
+  const most = Math.max(...g.players.map((p) => p.cards.length));
+  const candidates = g.players.filter((p) => p.cards.length === most).map((p) => p.id);
+
+  if (candidates.length === 1) return startPyramid(g, candidates[0]);
+
+  const names = candidates.map((id) => playerById(g, id).name).join(", ");
+  return {
+    ...g,
+    phase: "tiebreak",
+    candidates,
+    tieMode: tieCanBeResolvedByFlip(g, candidates) ? "flip" : "draw",
+    flipped: null,
+    drawn: null,
+    message: `Gleichstand mit ${most} Karten: ${names}. Wer zuerst ablegen kann, ist raus.`,
+  };
 }
 
-function dealPyramid(g) {
-  const deck = deckWithAtLeast(g, PYRAMID_CARDS);
+/** Liegt ueberhaupt noch eine Karte im Stapel, die einer der Kandidaten hat? */
+function tieCanBeResolvedByFlip(g, candidates) {
+  const ranks = new Set();
+  for (const id of candidates) for (const c of playerById(g, id).cards) ranks.add(c.rank);
+  return refill(g, 1).some((c) => ranks.has(c.rank));
+}
+
+/** Eine Karte aufdecken: Wer sie ablegen kann, muss nicht fahren. */
+export function tiebreakFlip(g) {
+  if (g.phase !== "tiebreak" || g.tieMode !== "flip") return g;
+
+  const deck = refill(g, 1);
+  const card = deck[0];
+  const rest = deck.slice(1);
+
+  const escaped = g.candidates.filter((id) => playerById(g, id).cards.some((c) => c.rank === card.rank));
+
+  // Koennten alle ablegen, entscheidet die Karte nichts - dann bleibt es beim Gleichstand.
+  const remaining = escaped.length === g.candidates.length || escaped.length === 0
+    ? g.candidates
+    : g.candidates.filter((id) => !escaped.includes(id));
+
+  const base = { ...g, deck: rest, flipped: card };
+
+  if (remaining.length === 1) {
+    const name = playerById(g, remaining[0]).name;
+    return startPyramid({ ...base, candidates: remaining }, remaining[0], `${name} konnte nicht ablegen und faehrt Bus.`);
+  }
+
+  const raus = escaped.length && escaped.length < g.candidates.length
+    ? escaped.map((id) => playerById(g, id).name).join(", ") + " ist raus."
+    : "Keiner konnte ablegen.";
+
+  return {
+    ...base,
+    candidates: remaining,
+    tieMode: tieCanBeResolvedByFlip({ ...base, candidates: remaining }, remaining) ? "flip" : "draw",
+    message: `${card.rank} aufgedeckt – ${raus}`,
+  };
+}
+
+/** Patt: jeder zieht eine Karte, der niedrigste Wert faehrt. */
+export function tiebreakDraw(g) {
+  if (g.phase !== "tiebreak" || g.tieMode !== "draw") return g;
+
+  let deck = refill(g, g.candidates.length);
+  const drawn = {};
+  g.candidates.forEach((id, i) => (drawn[id] = deck[i]));
+  deck = deck.slice(g.candidates.length);
+
+  const lowest = Math.min(...g.candidates.map((id) => rankValue(drawn[id].rank)));
+  const losers = g.candidates.filter((id) => rankValue(drawn[id].rank) === lowest);
+
+  if (losers.length === 1) {
+    const name = playerById(g, losers[0]).name;
+    return startPyramid({ ...g, deck, drawn }, losers[0], `${name} hat die niedrigste Karte und faehrt Bus.`);
+  }
+
+  return {
+    ...g,
+    deck,
+    drawn,
+    candidates: losers,
+    message: "Gleiche Karten gezogen – nochmal.",
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4 – Die Pyramide
+// ---------------------------------------------------------------------------
+
+/**
+ * Beim Busfahren sind alle Handkarten weg und es wird ein frisches Deck benutzt:
+ * 15 Karten liegen als Pyramide (5-4-3-2-1), die restlichen 37 sind der Nachziehstapel.
+ * Nach jedem Fehlversuch werden genau die Karten, die man aufgedeckt hatte, mit
+ * neuen Karten aus dem Stapel wieder zugedeckt. Ist der Stapel leer, ist die Runde
+ * vorbei - auch wenn man es nicht nach oben geschafft hat.
+ */
+function startPyramid(g, driverId, extraMessage) {
+  const deck = createShuffledDeck();
   const rows = [];
   let cursor = 0;
   for (const size of PYRAMID_ROWS) {
     rows.push(deck.slice(cursor, cursor + size));
     cursor += size;
   }
-  return { rows, deck: deck.slice(cursor) };
-}
 
-function startPyramid(g) {
-  const driver = g.players.reduce((worst, p) => (p.cards.length > worst.cards.length ? p : worst), g.players[0]);
-  const { rows, deck } = dealPyramid(g);
+  const name = playerById(g, driverId).name;
   return {
     ...g,
-    deck,
+    players: g.players.map((p) => ({ ...p, cards: [] })), // alle Karten sind abgelegt
+    deck: deck.slice(PYRAMID_CARDS),
+    // Alles aus den vorherigen Phasen wird eingesammelt - sonst lägen dieselben
+    // Karten doppelt im Zustand, obwohl auf dem Tisch nur ein Deck liegt.
+    drinkRow: null,
+    giveRow: null,
+    order: null,
+    flipped: null,
+    drawn: null,
+    candidates: null,
     phase: "pyramid",
-    driverId: driver.id,
+    driverId,
     rows,
     path: [],
     failedAt: null,
     attempts: 1,
     finished: false,
-    message: `${driver.name} hat die meisten Karten und muss in die Pyramide.`,
+    outOfCards: false,
+    message: extraMessage ?? `${name} hat die meisten Karten und muss in die Pyramide.`,
   };
 }
 
@@ -335,6 +480,7 @@ export function pickPyramid(g, index) {
   const card = g.rows[level][index];
   if (!card) return g;
 
+  // Bildkarte - auch ganz oben an der Spitze - setzt zurueck.
   if (isFaceCard(card)) {
     const sips = level + 1;
     const players = g.players.map((p) => (p.id === g.driverId ? { ...p, sips: p.sips + sips } : p));
@@ -349,21 +495,49 @@ export function pickPyramid(g, index) {
 
   const path = [...g.path, index];
   const finished = path.length >= PYRAMID_ROWS.length;
-  return { ...g, path, finished, message: finished ? null : "Geschafft – weiter nach oben!" };
-}
-
-/** Nach einer Bildkarte: neue Pyramide aus demselben Stapel, wieder von unten. */
-export function restartPyramid(g) {
-  if (g.phase !== "pyramid" || !g.failedAt) return g;
-  const { rows, deck } = dealPyramid(g);
   return {
     ...g,
-    deck,
+    path,
+    finished,
+    message: finished ? null : "Geschafft – weiter nach oben!",
+  };
+}
+
+/**
+ * Nach einer Bildkarte: die aufgedeckten Stellen werden mit Karten aus dem
+ * Reststapel wieder zugedeckt. Reicht der Stapel nicht mehr, endet die Runde.
+ */
+export function restartPyramid(g) {
+  if (g.phase !== "pyramid" || !g.failedAt) return g;
+
+  const need = g.path.length + 1; // alle Karten, die in diesem Versuch offen lagen
+  if (g.deck.length < need) {
+    return {
+      ...g,
+      failedAt: null,
+      finished: true,
+      outOfCards: true,
+      message: "Das Deck ist leer – die Runde ist trotzdem vorbei.",
+    };
+  }
+
+  const rows = g.rows.map((r) => r.slice());
+  let deck = g.deck;
+  for (let r = 0; r < g.path.length; r++) {
+    rows[r][g.path[r]] = deck[0];
+    deck = deck.slice(1);
+  }
+  rows[g.failedAt.row][g.failedAt.index] = deck[0];
+  deck = deck.slice(1);
+
+  return {
+    ...g,
     rows,
+    deck,
     path: [],
     failedAt: null,
     attempts: g.attempts + 1,
-    message: "Neue Pyramide – such dir unten eine Karte aus.",
+    message: `Neue Karten liegen drüber – nochmal von unten. Noch ${deck.length} Karten im Stapel.`,
   };
 }
 
