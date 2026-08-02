@@ -1,0 +1,17 @@
+{
+  "name": "trinkspiele",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Busfahren als Web-App. Laeuft im Browser, keine App-Installation.",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test.js"
+  },
+  "dependencies": {
+    "socket.io": "^4.8.1"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

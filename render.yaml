@@ -1,0 +1,12 @@
+# Fertige Konfiguration fuer Render (render.com).
+# Render liest diese Datei automatisch - du musst dort nichts einstellen.
+
+services:
+  - type: web
+    name: trinkspiele
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: 8080
