@@ -147,6 +147,12 @@ input.code {
   color: var(--muted); font-size: 15px; margin-top: 14px;
 }
 .error { color: var(--danger); font-size: 15px; margin-top: 12px; font-weight: 600; }
+.crash {
+  background: var(--surface); border: 1.5px solid var(--danger);
+  border-radius: 14px; padding: 12px; margin: 12px 0;
+  color: var(--danger); font-size: 12px; line-height: 1.5;
+  white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, monospace;
+}
 .success {
   color: var(--success); font-size: 19px; font-weight: 800;
   text-align: center; margin: 16px 0;

@@ -23,6 +23,23 @@
 </head>
 <body>
   <div id="app" class="app"></div>
+
+  <!-- Wenn beim Laden etwas schiefgeht, blieb die Seite frueher einfach weiss.
+       Jetzt steht wenigstens da, woran es liegt. -->
+  <script>
+  window.addEventListener("error", function (e) {
+    var el = document.getElementById("app");
+    if (!el || el.innerHTML.length > 0) return;
+    var was = (e && (e.message || (e.target && e.target.src))) || "unbekannt";
+    el.innerHTML =
+      '<h2>Die App konnte nicht starten 😕</h2>' +
+      '<p class="sub">Meist fehlt eine Datei oder der Browser hat noch eine alte Fassung.' +
+      ' Einmal komplett schliessen und neu oeffnen hilft oft.</p>' +
+      '<pre class="crash">' + String(was).replace(/[<&]/g, "") + '</pre>' +
+      '<button class="wide" onclick="location.reload(true)">Neu laden</button>';
+  }, true);
+  </script>
+
   <script src="/socket.io/socket.io.js"></script>
   <script type="module" src="/app.js"></script>
 </body>
