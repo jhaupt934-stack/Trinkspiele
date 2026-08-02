@@ -47,10 +47,10 @@ html, body {
 }
 
 h1 { font-size: 34px; font-weight: 800; letter-spacing: -0.7px; margin: 0 0 6px; }
-h2 { font-size: 24px; font-weight: 800; letter-spacing: -0.4px; margin: 0 0 6px; }
-.sub { color: var(--muted); font-size: 15px; line-height: 1.55; margin: 0 0 18px; }
+h2 { font-size: 22px; font-weight: 800; letter-spacing: -0.4px; margin: 0 0 6px; }
+.sub { color: var(--muted); font-size: 14px; line-height: 1.5; margin: 0 0 12px; }
 .msg {
-  font-size: 15px; line-height: 1.5; margin: 12px 0; padding: 12px 14px;
+  font-size: 14px; line-height: 1.45; margin: 8px 0; padding: 10px 12px;
   background: var(--surface); border-radius: 14px; border-left: 4px solid var(--gold);
 }
 .label {
@@ -88,6 +88,16 @@ button.tile {
   background: var(--surface-2); border: 1.5px solid var(--border-strong); box-shadow: none;
 }
 button.tile:active { border-color: var(--mint); }
+
+/* Der Aktionsbereich klebt unten fest - man muss nie scrollen, um zu tippen. */
+.actions {
+  position: sticky; bottom: 0; z-index: 20;
+  margin-top: 10px;
+  padding: 14px 0 calc(10px + env(safe-area-inset-bottom));
+  background: linear-gradient(to top, var(--bg) 0%, var(--bg) 68%, rgba(20,16,49,0));
+}
+.actions > *:first-child { margin-top: 0; }
+.actions .panel, .actions .banner { margin-top: 0; margin-bottom: 0; }
 
 .row { display: flex; gap: 12px; }
 .row > button { flex: 1; }
@@ -192,7 +202,7 @@ input.code {
 .seat .head { display: flex; align-items: center; justify-content: center; gap: 8px; }
 .seat .name { font-size: 14px; font-weight: 800; color: var(--muted); }
 .seat.active .name { color: var(--text); }
-.seat .cards { display: flex; justify-content: center; margin-top: 7px; min-height: 48px; align-items: center; }
+.seat .cards { display: flex; justify-content: center; margin-top: 6px; min-height: 44px; align-items: center; }
 .seat .cards .card { margin: 0 -5px; }
 .seat .off { color: var(--danger); font-size: 11px; margin-top: 3px; }
 
@@ -203,10 +213,10 @@ input.code {
 }
 
 .felt {
-  margin: 18px 0 10px; border-radius: 130px;
+  margin: 12px 0 6px; border-radius: 130px;
   background: linear-gradient(160deg, var(--felt), var(--felt-2));
   border: 7px solid var(--wood);
-  padding: 22px 14px; min-height: 150px;
+  padding: 16px 12px; min-height: 120px;
   display: flex; align-items: center; justify-content: center; flex-direction: column;
   transform: perspective(950px) rotateX(10deg);
   box-shadow: 0 14px 28px rgba(0,0,0,.5), inset 0 0 60px rgba(0,0,0,.25);
@@ -223,10 +233,10 @@ input.code {
 .felt .note { color: #8FE8D0; font-size: 12px; margin-top: 6px; font-weight: 600; }
 
 /* --- Eigene Hand, aufgefaechert --- */
-.me { margin-top: 16px; text-align: center; }
+.me { margin-top: 10px; text-align: center; }
 .me .head { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 6px; }
 .me .name { font-size: 17px; font-weight: 800; }
-.hand { display: flex; justify-content: center; align-items: flex-start; min-height: 190px; padding-top: 12px; }
+.hand { display: flex; justify-content: center; align-items: flex-start; min-height: 150px; padding-top: 8px; }
 .hand .card { margin: 0 -22px; transform-origin: bottom center; }
 
 /* --- Ergebnis --- */

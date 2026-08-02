@@ -272,6 +272,11 @@ function lobbyScreen() {
 
 // --- Spiel ---
 
+/** Name des Hosts - er steuert in Phase 2 das Aufdecken. */
+function hostName(g) {
+  return g.players.find((p) => p.id === g.hostId)?.name ?? "Der Host";
+}
+
 function handOutPanel(g) {
   const targets = sipTargets(g);
   const from = g.players.find((p) => p.id === distributorId(g));
@@ -330,7 +335,7 @@ function guessScreen(g) {
       <span class="note">${g.deck.length} Karten</span>
     </div>
     ${meBlock(me, turn.id)}
-    ${footer}`;
+    <div class="actions">${footer}</div>`;
 }
 
 function rowsScreen(g) {
@@ -358,7 +363,9 @@ function rowsScreen(g) {
   if (g.pendingSips > 0) {
     footer = handOutPanel(g);
   } else if (!g.revealedNow) {
-    footer = `<button class="wide" data-a="reveal">Karte aufdecken (${g.cursor + 1} von 8)</button>`;
+    footer = canAct({ type: "revealRow" })
+      ? `<button class="wide" data-a="reveal">Karte aufdecken (${g.cursor + 1} von 8)</button>`
+      : `<p class="banner">${esc(hostName(g))} deckt die nächste Karte auf.</p>`;
   } else {
     const inner =
       matches.length === 0
@@ -373,7 +380,11 @@ function rowsScreen(g) {
     } Schluck${cur?.card.value > 1 ? "e" : ""}</h3>
         ${inner}
       </div>
-      <button class="secondary wide" data-a="next">Weiter</button>`;
+      ${
+        canAct({ type: "nextRow" })
+          ? `<button class="secondary wide" data-a="next">Weiter</button>`
+          : `<p class="banner">${esc(hostName(g))} blättert weiter.</p>`
+      }`;
   }
 
   return `
@@ -388,7 +399,7 @@ function rowsScreen(g) {
       ${line(g.giveRow, "give")}
     </div>
     ${meBlock(me, g.pendingFromId)}
-    ${footer}`;
+    <div class="actions">${footer}</div>`;
 }
 
 function pyramidScreen(g) {
@@ -447,7 +458,7 @@ function pyramidScreen(g) {
     ${seatsHtml(others, driver.id)}
     <div class="felt">${pyramid}</div>
     ${meBlock(me, driver.id)}
-    ${footer}`;
+    <div class="actions">${footer}</div>`;
 }
 
 function resultScreen(g) {
@@ -613,7 +624,7 @@ el.addEventListener("click", (e) => {
 
     case "start": {
       const players = S.names.map((n, i) => ({ id: "p" + i, name: n.trim() || `Spieler ${i + 1}` }));
-      S.game = initGame(players);
+      S.game = initGame(players); // ohne hostId: am selben Geraet darf jeder aufdecken
       S.screen = "game";
       break;
     }
