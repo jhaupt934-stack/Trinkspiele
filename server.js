@@ -61,7 +61,17 @@ function serveStatic(req, res) {
     res.writeHead(404, { "content-type": "text/plain; charset=utf-8" }).end("Nicht gefunden");
     return;
   }
-  res.writeHead(200, { "content-type": MIME[path.extname(file)] ?? "application/octet-stream" });
+  // Seite, Skripte und Stile duerfen NICHT im Handy haengen bleiben, sonst
+  // spielt ihr nach einem Update noch tagelang die alte Fassung. "no-cache"
+  // heisst: darf gespeichert werden, aber vor jeder Benutzung nachfragen.
+  // Bilder aendern sich praktisch nie, die bleiben ein Jahr liegen.
+  const ext = path.extname(file);
+  const frisch = [".html", ".js", ".css", ".webmanifest"].includes(ext);
+
+  res.writeHead(200, {
+    "content-type": MIME[ext] ?? "application/octet-stream",
+    "cache-control": frisch ? "no-cache" : "public, max-age=31536000",
+  });
   fs.createReadStream(file).pipe(res);
 }
 
