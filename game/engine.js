@@ -13,15 +13,22 @@
 //   3. "tiebreak" - nur falls mehrere gleich viele Karten uebrig haben (siehe unten).
 //   4. "pyramid"  - der Verlierer kaempft sich von unten nach oben.
 //
-// Verteilte Schluecke darf man sich nie selbst geben.
-//
-// In Phase 2 koennen mehrere gleichzeitig ablegen. Deshalb ist "wer muss noch
-// verteilen" keine einzelne Person, sondern die Liste `pending`:
-//   pending = { "p-abc": 3, "p-xyz": 1 }
-// Jeder aus dieser Liste verteilt unabhaengig von den anderen - keiner muss
-// warten, bis ein anderer fertig ist.
+// Verteilte Schluecke darf man sich nie selbst geben. Wie das Verteilen
+// funktioniert - auch mehrere Spieler gleichzeitig - steht in sips.js.
 
 import { createDeck, createShuffledDeck, draw, isRed, rankValue, shuffle } from "./deck.js";
+import {
+  addPending,
+  distributorIds,
+  emptySips,
+  giveSip,
+  pendingFor,
+  pendingTotal,
+  sipTargets,
+} from "./sips.js";
+
+// Damit die Oberflaeche alles aus einer Datei holen kann.
+export { distributorIds, pendingFor, pendingTotal, sipTargets };
 
 export const ROUND_TITLES = [
   "Runde 1 – Rot oder Schwarz?",
@@ -50,49 +57,20 @@ export const MAX_PLAYERS = 8;
 export function initGame(players, rng, hostId = null) {
   if (players.length < MIN_PLAYERS) throw new Error("Mindestens 2 Spieler.");
   return {
+    game: "bus",
     players: players.map((p) => ({ id: p.id, name: p.name, sips: 0, cards: [], connected: true })),
     hostId,
     deck: createShuffledDeck(rng),
     phase: "guess",
     round: 0,
     turn: 0,
-    pending: {},
-    runs: {},
-    dist: 0,
-    sipLog: [],
-    sipSeq: 0,
+    ...emptySips(),
     message: null,
   };
 }
 
 export const currentPlayer = (g) => g.players[g.turn];
 export const playerById = (g, id) => g.players.find((p) => p.id === id);
-
-/** Wie viele Schluecke muss dieser Spieler gerade noch verteilen? */
-export const pendingFor = (g, id) => (id && g.pending ? g.pending[id] ?? 0 : 0);
-
-/** Wie viele Schluecke stehen insgesamt noch aus? */
-export const pendingTotal = (g) =>
-  Object.values(g.pending ?? {}).reduce((a, b) => a + b, 0);
-
-/** Alle, die gerade verteilen - in Phase 2 koennen das mehrere gleichzeitig sein. */
-export const distributorIds = (g) =>
-  Object.keys(g.pending ?? {}).filter((id) => g.pending[id] > 0);
-
-/** An wen darf `fromId` Schluecke geben? An alle ausser sich selbst. */
-export function sipTargets(g, fromId) {
-  return g.players.filter((p) => p.id !== fromId);
-}
-
-/** Setzt einen Verteil-Auftrag: `anzahl` Schluecke fuer `id`, als neue Runde. */
-function addPending(g, id, anzahl) {
-  const dist = (g.dist ?? 0) + 1;
-  return {
-    dist,
-    runs: { ...(g.runs ?? {}), [id]: dist },
-    pending: { ...(g.pending ?? {}), [id]: pendingFor(g, id) + anzahl },
-  };
-}
 
 /**
  * Alle Karten, die gerade irgendwo liegen: auf den Haenden, in den zwei Reihen,
