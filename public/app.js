@@ -24,16 +24,22 @@ import { isRed, suitSymbol } from "/game/deck.js";
 
 const el = document.getElementById("app");
 
+// Der Name wird im Browser gespeichert und beim naechsten Oeffnen
+// automatisch wieder benutzt.
+const NAME_KEY = "trinkspiele.name";
+const savedName = () => (localStorage.getItem(NAME_KEY) ?? "").trim();
+const saveName = (n) => localStorage.setItem(NAME_KEY, n.trim());
+
 const S = {
-  screen: "home", // home | setup | lobby | game
+  screen: savedName() ? "home" : "name", // name | home | setup | lobby | game
   mode: "local", // local | online
+  name: savedName(),
   names: ["", ""],
   game: null,
   // Online
   socket: null,
   lobby: null,
   myId: null,
-  name: "",
   code: "",
   error: null,
   connected: false,
@@ -45,6 +51,18 @@ const S = {
 
 const esc = (s) =>
   String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+
+// Jeder Name bekommt dauerhaft dieselbe Farbe.
+const AV_COLORS = ["#FF5FA2", "#8B5CF6", "#2EE6C5", "#FFC93C", "#FF9F43", "#5BC0FF", "#A0E85B", "#FF7A7A"];
+function avatarColor(key) {
+  let h = 0;
+  for (const ch of String(key)) h = (h * 31 + ch.charCodeAt(0)) % 100000;
+  return AV_COLORS[h % AV_COLORS.length];
+}
+const avatar = (name, small) =>
+  `<span class="av${small ? " sm" : ""}" style="background:${avatarColor(name)}">${esc(
+    (name || "?").trim().charAt(0).toUpperCase()
+  )}</span>`;
 
 function cardHtml(card, size = "m", opts = {}) {
   const cls = ["card", size];
@@ -75,7 +93,7 @@ function handHtml(player) {
   const cards = player.cards
     .map((c, i) => {
       const off = i - (n - 1) / 2;
-      const style = `transform: rotate(${(off * 8).toFixed(1)}deg); margin-top:${Math.abs(off) * 9}px`;
+      const style = `transform: rotate(${(off * 7).toFixed(1)}deg); margin-top:${Math.abs(off) * 10}px`;
       return cardHtml(c, "xl", { style });
     })
     .join("");
@@ -94,13 +112,14 @@ function seatsHtml(players, activeId) {
                 .map((c, i) => {
                   const off = i - (p.cards.length - 1) / 2;
                   return cardHtml(c, "xs", {
-                    style: `transform: perspective(400px) rotateX(16deg) rotate(${(off * 4).toFixed(1)}deg)`,
+                    style: `transform: perspective(400px) rotateX(14deg) rotate(${(off * 4).toFixed(1)}deg)`,
                   });
                 })
                 .join("");
         return (
           `<div class="seat ${p.id === activeId ? "active" : ""}">` +
-          `<div class="head"><span class="name">${esc(p.name)}</span><span class="badge">${p.sips}</span></div>` +
+          `<div class="head">${avatar(p.name, true)}<span class="name">${esc(p.name)}</span>` +
+          `<span class="badge">${p.sips}</span></div>` +
           `<div class="cards">${cards}</div>` +
           (p.connected === false ? `<div class="off">offline</div>` : "") +
           `</div>`
@@ -141,24 +160,41 @@ function canAct(action) {
 // Bildschirme
 // ---------------------------------------------------------------------------
 
+function nameScreen() {
+  return `
+    <h1>🍻 Willkommen!</h1>
+    <p class="sub">Wie sollen dich die anderen nennen? Der Name wird auf diesem
+    Gerät gespeichert – du musst ihn nur einmal eintragen.</p>
+    <input id="nameInput" value="${esc(S.name)}" placeholder="Dein Name" maxlength="14" autofocus>
+    ${S.error ? `<p class="error">${esc(S.error)}</p>` : ""}
+    <div style="height:16px"></div>
+    <button class="wide" data-a="saveName">Weiter</button>`;
+}
+
 function homeScreen() {
   return `
-    <h1>🍻 Trinkspiele</h1>
-    <p class="sub">Busfahren. Läuft im Browser, keine App nötig.</p>
-
-    <div class="panel">
-      <h3>Busfahren</h3>
-      <p class="hint">Karten raten, zwei Reihen, dann die Pyramide. 2 bis 8 Spieler.</p>
-      <div class="stack">
-        <button data-a="local">Auf einem Handy</button>
-        <button class="secondary" data-a="online">Online mit Freunden</button>
+    <div class="greet">
+      ${avatar(S.name)}
+      <div class="who">
+        <div class="hi">Willkommen zurück</div>
+        <div class="nm">${esc(S.name)}</div>
       </div>
+      <button class="ghost small" data-a="editName">ändern</button>
     </div>
 
-    <p class="sub">
-      <strong>Auf einem Handy:</strong> Ihr reicht ein Gerät reihum.<br>
-      <strong>Online:</strong> Jeder öffnet den Link auf seinem eigenen Handy und sieht
-      seine Karten groß vor sich.
+    <h1>Busfahren 🃏</h1>
+    <p class="sub">Karten raten, zwei Reihen, dann die Pyramide. 2 bis 8 Spieler.</p>
+
+    <div class="stack">
+      <button data-a="online">🌍 Online mit Freunden</button>
+      <button class="secondary" data-a="local">📱 Alle an einem Handy</button>
+    </div>
+
+    <p class="sub" style="margin-top:22px">
+      <strong>Online:</strong> Du erstellst eine Lobby und bekommst einen Code.
+      Deine Freunde öffnen denselben Link, tippen den Code ein – und jeder sieht
+      seine eigenen Karten groß vor sich.<br><br>
+      <strong>An einem Handy:</strong> Ihr reicht ein Gerät reihum weiter.
     </p>`;
 }
 
@@ -166,20 +202,20 @@ function setupScreen() {
   const rows = S.names
     .map(
       (v, i) => `
-      <div class="row" style="margin-bottom:9px">
+      <div class="row" style="margin-bottom:10px">
         <input data-i="${i}" value="${esc(v)}" placeholder="Spieler ${i + 1}" maxlength="14">
-        ${S.names.length > MIN_PLAYERS ? `<button class="ghost small" data-a="rm" data-i="${i}">✕</button>` : ""}
+        ${S.names.length > MIN_PLAYERS ? `<button class="ghost small" data-a="rm" data-i="${i}" style="flex:0 0 auto">✕</button>` : ""}
       </div>`
     )
     .join("");
 
   return `
-    <h2>Auf einem Handy</h2>
+    <h2>Alle an einem Handy</h2>
     <p class="sub">Namen eintragen, dann wird reihum weitergereicht.</p>
     ${rows}
     ${S.names.length < MAX_PLAYERS ? `<button class="secondary wide" data-a="add">+ Spieler</button>` : ""}
-    <div style="height:18px"></div>
-    <button class="wide" data-a="start">Los geht's</button>
+    <div style="height:20px"></div>
+    <button class="wide" data-a="start">Los geht's 🎉</button>
     <button class="ghost wide" data-a="home">Zurück</button>`;
 }
 
@@ -189,47 +225,48 @@ function lobbyScreen() {
     const me = S.lobby.players.find((p) => p.id === S.myId);
     const enough = S.lobby.players.length >= MIN_PLAYERS;
     return `
-      <h2>Lobby</h2>
+      <h2>Eure Lobby</h2>
       <p class="sub">Diesen Code an deine Freunde weitergeben:</p>
       <div class="codebox"><div class="code">${S.lobby.code}</div></div>
       ${!S.connected ? `<p class="error">Verbindung unterbrochen, versuche neu zu verbinden…</p>` : ""}
-      <p class="label">Spieler (${S.lobby.players.length})</p>
+      <p class="label">Dabei (${S.lobby.players.length})</p>
       ${S.lobby.players
         .map(
           (p) => `
         <div class="player-row">
+          ${avatar(p.name)}
           <span class="name">${esc(p.name)}${p.id === S.myId ? " (du)" : ""}</span>
           ${p.isHost ? `<span class="tag-host">Host</span>` : ""}
-          ${!p.connected ? `<span class="off" style="color:var(--danger);font-size:11px">offline</span>` : ""}
+          ${!p.connected ? `<span style="color:var(--danger);font-size:12px">offline</span>` : ""}
         </div>`
         )
         .join("")}
       ${S.error ? `<p class="error">${esc(S.error)}</p>` : ""}
-      <div style="height:18px"></div>
+      <div style="height:20px"></div>
       ${
         me?.isHost
           ? `<button class="wide" data-a="startOnline" ${enough ? "" : "disabled"}>${
-              enough ? "Spiel starten" : `Warte auf Spieler (min. ${MIN_PLAYERS})`
+              enough ? "Spiel starten 🎉" : `Warte auf Spieler (min. ${MIN_PLAYERS})`
             }</button>`
           : `<p class="banner">Der Host startet das Spiel.</p>`
       }
       <button class="ghost wide" data-a="leave">Lobby verlassen</button>`;
   }
 
-  // Erstellen / Beitreten
+  // Erstellen oder beitreten - der Name steht ja schon fest
   return `
     <h2>Online mit Freunden</h2>
-    <p class="sub">Jeder spielt auf seinem eigenen Handy.</p>
-    <p class="label">Dein Name</p>
-    <input id="nameInput" value="${esc(S.name)}" placeholder="Wie heißt du?" maxlength="14">
-    <div style="height:12px"></div>
+    <p class="sub">Du spielst als <strong>${esc(S.name)}</strong>.</p>
+
     <button class="wide" data-a="create">Neue Lobby erstellen</button>
-    <p class="sub" style="text-align:center;margin:18px 0">oder einer Lobby beitreten</p>
+
+    <p class="sub" style="text-align:center;margin:22px 0 12px">oder einer Lobby beitreten</p>
     <input id="codeInput" class="code" value="${esc(S.code)}" placeholder="CODE" maxlength="4">
-    <div style="height:10px"></div>
+    <div style="height:12px"></div>
     <button class="secondary wide" data-a="join">Beitreten</button>
+
     ${S.error ? `<p class="error">${esc(S.error)}</p>` : ""}
-    <div style="height:10px"></div>
+    <div style="height:12px"></div>
     <button class="ghost wide" data-a="home">Zurück</button>`;
 }
 
@@ -247,10 +284,16 @@ function handOutPanel(g) {
   }
   return `
     <div class="panel accent">
-      <h3>Noch ${g.pendingSips} Schluck${g.pendingSips > 1 ? "e" : ""} verteilen</h3>
-      <p class="hint">An dich selbst geht nicht.</p>
-      <div class="chips">
-        ${targets.map((p) => `<button class="secondary small" data-a="sip" data-id="${p.id}">${esc(p.name)}</button>`).join("")}
+      <h3>Noch ${g.pendingSips} Schluck${g.pendingSips > 1 ? "e" : ""} verteilen 🍺</h3>
+      <p class="hint">Tipp auf den, der trinken soll. An dich selbst geht nicht.</p>
+      <div class="tiles">
+        ${targets
+          .map(
+            (p) =>
+              `<button class="tile" data-a="sip" data-id="${p.id}">${avatar(p.name)}` +
+              `<span style="flex:1">${esc(p.name)}</span><span class="badge">${p.sips}</span></button>`
+          )
+          .join("")}
       </div>
     </div>`;
 }
@@ -262,16 +305,16 @@ function guessScreen(g) {
   const sips = g.round + 1;
 
   const options = [
-    [["Rot", "red"], ["Schwarz", "black"]],
-    [["Höher", "higher"], ["Niedriger", "lower"]],
-    [["Dazwischen", "inside"], ["Außerhalb", "outside"]],
+    [["🔴 Rot", "red"], ["⚫ Schwarz", "black"]],
+    [["⬆️ Höher", "higher"], ["⬇️ Niedriger", "lower"]],
+    [["↔️ Dazwischen", "inside"], ["↕️ Außerhalb", "outside"]],
     [["Hatte ich schon", "seen"], ["Ist neu", "new"]],
   ][g.round];
 
   let footer;
   if (g.pendingSips > 0) footer = handOutPanel(g);
   else if (canAct({ type: "guess", value: "red" }))
-    footer = `<div class="row" style="margin-top:14px">${options
+    footer = `<div class="row" style="margin-top:16px">${options
       .map(([label, v]) => `<button data-a="guess" data-v="${v}">${label}</button>`)
       .join("")}</div>`;
   else footer = `<p class="banner">${esc(turn.name)} ist dran.</p>`;
@@ -300,7 +343,7 @@ function rowsScreen(g) {
   const line = (row, kind) =>
     `<div class="line">` +
     row
-      .map((c, i) => {
+      .map((c) => {
         const isCur = g.revealedNow && cur?.kind === kind && cur?.card === c;
         return (
           `<div class="slot">` +
@@ -321,7 +364,7 @@ function rowsScreen(g) {
       matches.length === 0
         ? `<p class="hint">Niemand hat diesen Wert.</p>`
         : myMatch
-        ? `<div class="chips"><button class="accent small" data-a="discard" data-id="${myMatch.id}">Ablegen</button></div>`
+        ? `<button class="accent wide" data-a="discard" data-id="${myMatch.id}">Karte ablegen</button>`
         : `<p class="hint">Passt bei: ${matches.map((p) => esc(p.name)).join(", ")}</p>`;
     footer = `
       <div class="panel">
@@ -381,7 +424,7 @@ function pyramidScreen(g) {
 
   let footer;
   if (g.finished) {
-    footer = `<p class="success">Oben angekommen. ${esc(driver.name)} ist raus.</p>
+    footer = `<p class="success">🎉 Oben angekommen! ${esc(driver.name)} ist raus.</p>
               <button class="wide" data-a="finish">Ergebnis anzeigen</button>`;
   } else if (g.failedAt) {
     footer = iDrive
@@ -398,7 +441,7 @@ function pyramidScreen(g) {
   }
 
   return `
-    <h2>Pyramide</h2>
+    <h2>Die Pyramide 🚌</h2>
     <p class="sub">${esc(driver.name)} fährt Bus – Reihe ${Math.min(level + 1, 5)} von 5, Versuch ${g.attempts}</p>
     ${g.message ? `<p class="msg">${esc(g.message)}</p>` : ""}
     ${seatsHtml(others, driver.id)}
@@ -410,20 +453,21 @@ function pyramidScreen(g) {
 function resultScreen(g) {
   const ranked = [...g.players].sort((a, b) => b.sips - a.sips);
   return `
-    <h2>Ergebnis</h2>
+    <h2>Ergebnis 🏆</h2>
     <p class="sub">Schlucke gesamt</p>
     ${ranked
       .map(
         (p, i) => `
-      <div class="result">
+      <div class="result ${i === 0 ? "first" : ""}">
         <span class="rank">${i + 1}</span>
+        ${avatar(p.name)}
         <span class="name">${esc(p.name)}</span>
         <span class="badge">${p.sips}</span>
       </div>`
       )
       .join("")}
-    <div style="height:22px"></div>
-    <button class="secondary wide" data-a="home">Zurück zur Übersicht</button>`;
+    <div style="height:24px"></div>
+    <button class="wide" data-a="home">Nochmal spielen</button>`;
 }
 
 function meBlock(me, activeId) {
@@ -431,6 +475,7 @@ function meBlock(me, activeId) {
   return `
     <div class="me">
       <div class="head">
+        ${avatar(me.name)}
         <span class="name">${esc(me.name)}${me.id === activeId ? " – du bist dran" : ""}</span>
         <span class="badge">${me.sips}</span>
       </div>
@@ -444,7 +489,8 @@ function meBlock(me, activeId) {
 
 function render() {
   let html;
-  if (S.screen === "home") html = homeScreen();
+  if (S.screen === "name") html = nameScreen();
+  else if (S.screen === "home") html = homeScreen();
   else if (S.screen === "setup") html = setupScreen();
   else if (S.screen === "lobby") html = lobbyScreen();
   else if (S.game) {
@@ -461,6 +507,9 @@ function render() {
     html += `<div class="offline-bar">Keine Verbindung – versuche neu zu verbinden…</div>`;
   }
   el.innerHTML = html;
+
+  const focusMe = document.getElementById("nameInput") ?? document.getElementById("codeInput");
+  if (S.screen === "name") focusMe?.focus();
 }
 
 // ---------------------------------------------------------------------------
@@ -520,6 +569,19 @@ el.addEventListener("click", (e) => {
   S.error = null;
 
   switch (a) {
+    case "saveName":
+      if (!S.name.trim()) {
+        S.error = "Bitte trag einen Namen ein.";
+        break;
+      }
+      saveName(S.name);
+      S.screen = "home";
+      break;
+
+    case "editName":
+      S.screen = "name";
+      break;
+
     case "home":
       if (S.mode === "online") {
         S.socket?.emit("leaveLobby");
@@ -532,6 +594,8 @@ el.addEventListener("click", (e) => {
     case "local":
       S.mode = "local";
       S.screen = "setup";
+      // Der eigene Name steht schon in Feld 1.
+      if (!S.names[0]) S.names[0] = S.name;
       break;
 
     case "online":
@@ -555,10 +619,6 @@ el.addEventListener("click", (e) => {
     }
 
     case "create":
-      if (!S.name.trim()) {
-        S.error = "Bitte einen Namen eintragen.";
-        break;
-      }
       connect().emit("createLobby", { name: S.name.trim() }, (res) => {
         if (res.ok) Object.assign(S, { myId: res.playerId, lobby: res.lobby, connected: true });
         else S.error = res.error;
@@ -567,8 +627,8 @@ el.addEventListener("click", (e) => {
       return;
 
     case "join":
-      if (!S.name.trim() || S.code.length < 4) {
-        S.error = "Name und vierstelliger Code nötig.";
+      if (S.code.length < 4) {
+        S.error = "Bitte den vierstelligen Code eintragen.";
         break;
       }
       connect().emit("joinLobby", { code: S.code, name: S.name.trim() }, (res) => {
@@ -608,6 +668,19 @@ el.addEventListener("click", (e) => {
       return dispatch({ type: "finish" });
   }
   render();
+});
+
+// Enter im Namensfeld schickt ab.
+el.addEventListener("keydown", (e) => {
+  if (e.key !== "Enter") return;
+  if (e.target.id === "nameInput" && S.screen === "name") {
+    readInputs();
+    if (S.name.trim()) {
+      saveName(S.name);
+      S.screen = "home";
+      render();
+    }
+  }
 });
 
 render();
