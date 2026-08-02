@@ -85,8 +85,8 @@ const REGELN = {
     Pyramide (5-4-3-2-1), der Rest ist Nachziehstapel.</p>
     <p>Der Busfahrer arbeitet sich von unten nach oben, jede Karte muss an die
     vorherige angrenzen. <strong>Zahlenkarte:</strong> weiter.
-    <strong>Bild (Bube, Dame, König):</strong> so viele Schlücke wie die Reihe
-    hoch ist, alles wieder zudecken, von vorne – auch an der Spitze.</p>
+    <strong>Bild – Bube, Dame, König oder Ass:</strong> so viele Schlücke wie die
+    Reihe hoch ist, alles wieder zudecken, von vorne – auch an der Spitze.</p>
     <p>Ist der Nachziehstapel leer, ist die Runde vorbei. Geschafft oder nicht.</p>`,
 
   race: `
@@ -137,6 +137,11 @@ const NAME_KEY = "trinkspiele.name";
 const savedName = () => (localStorage.getItem(NAME_KEY) ?? "").trim();
 const saveName = (n) => localStorage.setItem(NAME_KEY, n.trim());
 
+// Auch das zuletzt gewaehlte Profilbild merken.
+const AV_KEY = "trinkspiele.avatar";
+const savedAvatar = () => localStorage.getItem(AV_KEY) ?? null;
+const saveAvatar = (a) => localStorage.setItem(AV_KEY, a);
+
 const S = {
   // name | home | games | rules | setup | lobby | game
   screen: savedName() ? "home" : "name",
@@ -164,18 +169,38 @@ const S = {
 const esc = (s) =>
   String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
-// Jeder Name bekommt dauerhaft dieselbe Farbe.
+// Profilbilder. Dieselbe Liste steht in server.js - test-ui.js prueft,
+// dass die beiden nicht auseinanderlaufen.
+const AVATARE = [
+  "🦊", "🐼", "🐸", "🐙", "🦁", "🐷", "🐵", "🦉",
+  "🐺", "🦄", "🐨", "🐯", "🦖", "🐬", "🦩", "🐝",
+];
+
+// Wer kein Bild hat (lokales Spiel), bekommt einen farbigen Kreis mit
+// dem Anfangsbuchstaben. Die Farbe haengt am Namen, bleibt also gleich.
 const AV_COLORS = ["#FF5FA2", "#8B5CF6", "#2EE6C5", "#FFC93C", "#FF9F43", "#5BC0FF", "#A0E85B", "#FF7A7A"];
 function avatarColor(key) {
   let h = 0;
   for (const ch of String(key)) h = (h * 31 + ch.charCodeAt(0)) % 100000;
   return AV_COLORS[h % AV_COLORS.length];
 }
-const avatar = (name, small) =>
-  `<span class="av${small ? " sm" : ""}" style="background:${avatarColor(name)}">${esc(
+
+/** `wer` darf ein Spieler-Objekt oder einfach ein Name sein. */
+function avatar(wer, small) {
+  const name = typeof wer === "string" ? wer : wer?.name ?? "?";
+  const bild = typeof wer === "object" ? wer?.avatar : null;
+  const cls = `av${small ? " sm" : ""}`;
+  if (bild) return `<span class="${cls} emoji">${bild}</span>`;
+  return `<span class="${cls}" style="background:${avatarColor(name)}">${esc(
     (name || "?").trim().charAt(0).toUpperCase()
   )}</span>`;
+}
 
+/**
+ * Eine Spielkarte. Bewusst schlicht: Wert und Symbol mittig untereinander,
+ * sonst nichts. Dadurch sitzt bei jeder Groesse alles sauber - Ecken und
+ * Symbolbilder verrutschen erfahrungsgemaess auf kleinen Bildschirmen.
+ */
 function cardHtml(card, size = "m", opts = {}) {
   const cls = ["card", size];
   if (opts.dim) cls.push("dim");
@@ -188,12 +213,10 @@ function cardHtml(card, size = "m", opts = {}) {
     return `<div class="${cls.join(" ")}"${style} ${data}></div>`;
   }
   cls.push(isRed(card) ? "red" : "black");
-  const sym = suitSymbol(card.suit);
   return (
     `<div class="${cls.join(" ")}"${style} ${data}>` +
-    `<span class="corner tl">${card.rank}<span>${sym}</span></span>` +
-    `<span class="pip">${sym}</span>` +
-    `<span class="corner br">${card.rank}<span>${sym}</span></span>` +
+    `<span class="rk">${card.rank}</span>` +
+    `<span class="st">${suitSymbol(card.suit)}</span>` +
     `</div>`
   );
 }
@@ -224,15 +247,14 @@ function seatsHtml(players, active) {
             ? `<span class="sub" style="margin:0">keine</span>`
             : p.cards
                 .map((c, i) => {
+                  // Nur flach drehen - 3D-Kippen macht die Karten unscharf.
                   const off = i - (p.cards.length - 1) / 2;
-                  return cardHtml(c, "xs", {
-                    style: `transform: perspective(400px) rotateX(14deg) rotate(${(off * 4).toFixed(1)}deg)`,
-                  });
+                  return cardHtml(c, "xs", { style: `transform: rotate(${(off * 4).toFixed(1)}deg)` });
                 })
                 .join("");
         return (
           `<div class="seat ${activeIds.has(p.id) ? "active" : ""}">` +
-          `<div class="head">${avatar(p.name, true)}<span class="name">${esc(p.name)}</span>` +
+          `<div class="head">${avatar(p, true)}<span class="name">${esc(p.name)}</span>` +
           `<span class="badge">${p.sips}</span></div>` +
           `<div class="cards">${cards}</div>` +
           (p.connected === false ? `<div class="off">offline</div>` : "") +
@@ -363,6 +385,27 @@ function gamePicker(aktiv, waehlbar = true) {
   );
 }
 
+/**
+ * Profilbild-Auswahl. Jedes Bild gibt es in einer Lobby nur einmal - was
+ * schon jemand hat, ist gesperrt und zeigt seinen Namen.
+ */
+function avatarPicker(players, meins) {
+  const belegt = new Map(players.filter((p) => p.avatar).map((p) => [p.avatar, p]));
+  return (
+    `<div class="avpick">` +
+    AVATARE.map((a) => {
+      const wer = belegt.get(a);
+      if (a === meins) return `<button class="avopt mine" disabled>${a}</button>`;
+      if (wer)
+        return `<button class="avopt weg" disabled title="${esc(wer.name)}">${a}<i>${esc(
+          wer.name.charAt(0).toUpperCase()
+        )}</i></button>`;
+      return `<button class="avopt" data-a="pickAvatar" data-av="${a}">${a}</button>`;
+    }).join("") +
+    `</div>`
+  );
+}
+
 function rulesScreen() {
   const s = SPIELE.find((x) => x.id === S.rulesFor) ?? SPIELE[0];
   return `
@@ -422,13 +465,16 @@ function lobbyScreen() {
         .map(
           (p) => `
         <div class="player-row">
-          ${avatar(p.name)}
+          ${avatar(p)}
           <span class="name">${esc(p.name)}${p.id === S.myId ? " (du)" : ""}</span>
           ${p.isHost ? `<span class="tag-host">Host</span>` : ""}
           ${!p.connected ? `<span style="color:var(--danger);font-size:12px">offline</span>` : ""}
         </div>`
         )
         .join("")}
+
+      <p class="label">Dein Bild</p>
+      ${avatarPicker(S.lobby.players, me?.avatar)}
 
       <p class="label">${binHost ? "Spiel wählen" : "Spiel"}</p>
       ${gamePicker(spiel, binHost)}
@@ -492,7 +538,7 @@ function handOutPanel(g, fromId) {
         ${sipTargets(g, fromId)
           .map(
             (p) =>
-              `<button class="tile" data-a="sip" data-id="${p.id}" data-from="${fromId}">${avatar(p.name)}` +
+              `<button class="tile" data-a="sip" data-id="${p.id}" data-from="${fromId}">${avatar(p)}` +
               `<span style="flex:1">${esc(p.name)}</span><span class="badge">${p.sips}</span></button>`
           )
           .join("")}
@@ -783,7 +829,7 @@ function betChips(g, suit) {
     wetten
       .map(
         (p) =>
-          `<span class="bet ${p.id === meId() ? "mine" : ""}">${avatar(p.name, true)}` +
+          `<span class="bet ${p.id === meId() ? "mine" : ""}">${avatar(p, true)}` +
           `<span>${esc(p.name)}</span><b>${g.bets[p.id].amount}</b></span>`
       )
       .join("") +
@@ -793,10 +839,7 @@ function betChips(g, suit) {
 
 /** Ein Ass als Spielkarte - die Farbe ist das Pferd. */
 const horseCard = (suit, size = "s") =>
-  `<div class="card ${size} ${suitCls(suit)}">` +
-  `<span class="corner tl">A<span>${suitSymbol(suit)}</span></span>` +
-  `<span class="pip">${suitSymbol(suit)}</span>` +
-  `<span class="corner br">A<span>${suitSymbol(suit)}</span></span></div>`;
+  cardHtml({ rank: "A", suit }, size);
 
 function betScreen(g) {
   const meine = g.bets[meId()];
@@ -872,51 +915,61 @@ function betScreen(g) {
     <div class="actions">${footer}</div>`;
 }
 
+/**
+ * Die Rennbahn laeuft von oben nach unten: oben der Start, unten das Ziel.
+ * Links stehen die Streckenkarten, rechts daneben die vier Bahnen.
+ */
 function raceScreen(g) {
   const binHost = S.mode === "local" || g.hostId === S.myId;
 
-  // Kopfzeile: die Streckenkarten sitzen neben den Feldern 1 bis 5.
+  // Kopfzeile: welches Pferd gehoert zu welcher Spalte, und wer hat gesetzt.
   const kopf =
-    `<div class="lane head"><span class="slot start"></span>` +
-    Array.from({ length: ZIEL }, (_, i) => {
-      const feld = i + 1;
-      if (feld > STRECKENKARTEN) return `<span class="slot"><span class="flag">🏁</span></span>`;
-      const s = g.side[feld - 1];
-      return `<span class="slot">${cardHtml(s.card, "xs", { faceDown: !s.revealed })}</span>`;
-    }).join("") +
+    `<div class="rrow head"><span class="mark"></span>` +
+    HORSE_ORDER.map(
+      (suit) =>
+        `<span class="cell"><span class="hsuit ${suitCls(suit)}">${suitSymbol(suit)}</span>` +
+        betChips(g, suit) +
+        `</span>`
+    ).join("") +
     `</div>`;
 
-  const bahnen = HORSE_ORDER.map((suit) => {
-    const pos = g.horses[suit];
-    const felder = Array.from({ length: ZIEL + 1 }, (_, i) => {
-      const hier = i === pos;
-      return `<span class="slot ${i === 0 ? "start" : ""} ${hier ? "on" : ""}">${
-        hier ? horseCard(suit, "xs") : ""
-      }</span>`;
+  // Eine Zeile pro Feld, von 0 (Start) bis zum Ziel.
+  const zeilen = Array.from({ length: ZIEL + 1 }, (_, feld) => {
+    let marke;
+    if (feld === 0) marke = `<span class="mark start">START</span>`;
+    else if (feld > STRECKENKARTEN) marke = `<span class="mark ziel">🏁</span>`;
+    else {
+      const s = g.side[feld - 1];
+      marke = `<span class="mark">${cardHtml(s.card, "s", { faceDown: !s.revealed })}</span>`;
+    }
+
+    const zellen = HORSE_ORDER.map((suit) => {
+      if (g.horses[suit] !== feld) return `<span class="cell"></span>`;
+      const cls = [g.winner === suit ? "win" : "", g.lastMove?.suit === suit ? "moved" : ""].join(" ");
+      return `<span class="cell hier ${cls}">${horseCard(suit, "s")}</span>`;
     }).join("");
-    return `
-      <div class="lane ${g.winner === suit ? "win" : ""} ${
-      g.lastMove?.suit === suit ? "moved" : ""
-    }">${felder}</div>
-      ${betChips(g, suit)}`;
+
+    return `<div class="rrow ${feld === 0 ? "startzeile" : ""}">${marke}${zellen}</div>`;
   }).join("");
 
-  const gezogen = g.flipped
-    ? `<div class="drawn">${cardHtml(g.flipped, "m")}<span class="note">${suitName(
-        g.flipped.suit
-      )} zieht vor</span></div>`
-    : `<div class="drawn">${cardHtml(null, "m", { faceDown: true })}<span class="note">Noch keine Karte</span></div>`;
+  const gezogen = `
+    <div class="drawn">
+      ${cardHtml(g.flipped, "m", { faceDown: !g.flipped })}
+      <span class="note">${
+        g.flipped ? `${suitName(g.flipped.suit)} zieht vor` : "Noch keine Karte"
+      }</span>
+    </div>`;
 
   const footer = binHost
-    ? `<button class="wide" data-a="flip">Nächste Karte aufdecken</button>`
+    ? `<button class="wide" data-a="flip">Nächste Karte 🂠</button>`
     : `<p class="banner">${esc(playerById(g, g.hostId)?.name ?? "Der Host")} deckt auf.</p>`;
 
   const hostName = playerById(g, g.hostId)?.name ?? "Host";
   return `
     ${turnBar(binHost ? "Du deckst auf" : `${esc(hostName)} deckt auf`, binHost)}
-    ${g.message ? `<p class="msg">${esc(g.message)}</p>` : ""}
-    <div class="track">${kopf}${bahnen}</div>
     ${gezogen}
+    ${g.message ? `<p class="msg">${esc(g.message)}</p>` : ""}
+    <div class="track">${kopf}${zeilen}</div>
     <div class="actions">${footer}</div>`;
 }
 
@@ -962,7 +1015,7 @@ function raceEndScreen(g) {
             .map(
               (p, i) => `
         <div class="result ${i === 0 ? "first" : ""}">
-          <span class="rank">${i + 1}</span>${avatar(p.name)}
+          <span class="rank">${i + 1}</span>${avatar(p)}
           <span class="name">${esc(p.name)}</span>
           <span class="badge">${p.sips}</span>
         </div>`
@@ -1009,7 +1062,7 @@ function resultScreen(g) {
         (p, i) => `
       <div class="result ${i === 0 ? "first" : ""}">
         <span class="rank">${i + 1}</span>
-        ${avatar(p.name)}
+        ${avatar(p)}
         <span class="name">${esc(p.name)}</span>
         <span class="badge">${p.sips}</span>
       </div>`
@@ -1025,7 +1078,7 @@ function meBlock(me, active) {
   return `
     <div class="me">
       <div class="head">
-        ${avatar(me.name)}
+        ${avatar(me)}
         <span class="name">${esc(me.name)}${dran ? " – du bist dran" : ""}</span>
         <span class="badge">${me.sips}</span>
       </div>
@@ -1178,6 +1231,11 @@ el.addEventListener("click", (e) => {
       if (S.mode === "online" && S.lobby) S.socket?.emit("setGame", { spiel: S.spiel });
       break;
 
+    case "pickAvatar":
+      saveAvatar(t.dataset.av);
+      S.socket?.emit("setAvatar", { avatar: t.dataset.av });
+      return;
+
     case "rules":
       S.rulesFor = t.dataset.id;
       S.screen = "rules";
@@ -1204,7 +1262,7 @@ el.addEventListener("click", (e) => {
     }
 
     case "create":
-      connect().emit("createLobby", { name: S.name.trim(), spiel: S.spiel }, (res) => {
+      connect().emit("createLobby", { name: S.name.trim(), spiel: S.spiel, avatar: savedAvatar() }, (res) => {
         if (res.ok) Object.assign(S, { myId: res.playerId, lobby: res.lobby, connected: true });
         else S.error = res.error;
         render();
@@ -1216,7 +1274,7 @@ el.addEventListener("click", (e) => {
         S.error = "Bitte den vierstelligen Code eintragen.";
         break;
       }
-      connect().emit("joinLobby", { code: S.code, name: S.name.trim() }, (res) => {
+      connect().emit("joinLobby", { code: S.code, name: S.name.trim(), avatar: savedAvatar() }, (res) => {
         if (res.ok) Object.assign(S, { myId: res.playerId, lobby: res.lobby, connected: true });
         else S.error = res.error;
         render();

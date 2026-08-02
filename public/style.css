@@ -132,6 +132,29 @@ input.code {
   font-weight: 800; font-size: 16px; color: #1A1040; flex: none;
 }
 .av.sm { width: 26px; height: 26px; font-size: 12px; }
+.av.emoji { background: var(--surface-3); font-size: 21px; }
+.av.sm.emoji { font-size: 15px; }
+
+/* --- Profilbild aussuchen --- */
+.avpick {
+  display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px;
+  margin-bottom: 4px;
+}
+.avopt {
+  position: relative; aspect-ratio: 1; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 22px; line-height: 1; border-radius: 12px;
+  background: var(--surface); border: 2px solid var(--border); box-shadow: none;
+}
+.avopt.mine { border-color: var(--mint); background: var(--surface-2); opacity: 1; }
+.avopt.weg { opacity: .3; }
+.avopt.weg i {
+  position: absolute; right: -2px; bottom: -2px;
+  width: 15px; height: 15px; border-radius: 50%;
+  background: var(--danger); color: #fff;
+  font-style: normal; font-size: 9px; font-weight: 800;
+  display: flex; align-items: center; justify-content: center;
+}
 
 .panel {
   background: var(--surface); border: 1.5px solid var(--border);
@@ -158,49 +181,61 @@ input.code {
   text-align: center; margin: 16px 0;
 }
 
-/* --- Spielkarten --- */
+/* --- Spielkarten ---
+   Schlicht gehalten: Wert und Symbol mittig untereinander, sonst nichts.
+   Eine einzige zentrierte Spalte kann auf keinem Bildschirm verrutschen. */
 .card {
-  position: relative; display: inline-flex;
+  display: inline-flex; flex-direction: column;
   align-items: center; justify-content: center;
-  background: #FFFDF8; border: 1px solid #E2DCCF; border-radius: 9px;
-  box-shadow: 0 5px 10px rgba(0,0,0,.45);
-  flex: none; font-weight: 800; line-height: 1;
+  background: #FFFDF7;
+  box-shadow: 0 0 0 1px rgba(0,0,0,.25), 0 3px 8px rgba(0,0,0,.4);
+  flex: none; line-height: 1;
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-variant-numeric: lining-nums tabular-nums;
 }
-.card .corner { position: absolute; display: flex; flex-direction: column; align-items: center; line-height: 1; }
-.card .corner.tl { top: 4px; left: 5px; }
-.card .corner.br { bottom: 4px; right: 5px; transform: rotate(180deg); }
-.card .pip { font-weight: 600; }
-.card.red { color: #E8324A; }
-.card.black { color: #1A1630; }
+.card.red { color: #D8213C; }
+.card.black { color: #16121F; }
+.card .rk { font-weight: 800; letter-spacing: -.04em; line-height: 1; }
+.card .st { line-height: 1; }
 
+/* Rueckseite */
 .card.back {
   background: linear-gradient(135deg, #3B2E8C, #6D4BD8);
-  border-color: #8B6BFF; padding: 4px; align-items: stretch;
+  padding: 4px; align-items: stretch; gap: 0;
 }
 .card.back::after {
-  content: ""; flex: 1; border: 1.5px solid rgba(255,255,255,.35); border-radius: 5px;
+  content: ""; flex: 1; border: 1.5px solid rgba(255,255,255,.35); border-radius: 4px;
   background:
     repeating-linear-gradient(45deg, rgba(255,255,255,.22) 0 1.5px, transparent 1.5px 8px),
     repeating-linear-gradient(-45deg, rgba(255,255,255,.22) 0 1.5px, transparent 1.5px 8px);
 }
 .card.dim { opacity: .3; }
+/* Auswaehlbar: nur ein Rahmen aus Schatten, damit sich die Groesse nicht aendert */
 .card.pick {
-  border: 3px solid var(--mint);
-  box-shadow: 0 0 0 4px rgba(46,230,197,.22), 0 5px 10px rgba(0,0,0,.45);
+  box-shadow: 0 0 0 3px var(--mint), 0 0 0 7px rgba(46,230,197,.25), 0 3px 8px rgba(0,0,0,.4);
   cursor: pointer;
 }
 
 /* Groessen im echten Kartenverhaeltnis 1 : 1.4 */
-.card.xs { width: 32px; height: 45px; font-size: 10px; }
-.card.xs .pip { font-size: 16px; }
-.card.s  { width: 50px; height: 70px; font-size: 14px; }
-.card.s .pip  { font-size: 26px; }
-.card.m  { width: 68px; height: 95px; font-size: 18px; }
-.card.m .pip  { font-size: 38px; }
-.card.l  { width: 92px; height: 129px; font-size: 24px; }
-.card.l .pip  { font-size: 50px; }
-.card.xl { width: 124px; height: 174px; font-size: 32px; border-radius: 13px; }
-.card.xl .pip { font-size: 72px; }
+.card.xs { width: 34px; height: 48px; border-radius: 4px; gap: 1px; }
+.card.xs .rk { font-size: 15px; }
+.card.xs .st { font-size: 13px; }
+
+.card.s  { width: 56px; height: 78px; border-radius: 6px; gap: 2px; }
+.card.s .rk { font-size: 25px; }
+.card.s .st { font-size: 21px; }
+
+.card.m  { width: 76px; height: 106px; border-radius: 8px; gap: 3px; }
+.card.m .rk { font-size: 34px; }
+.card.m .st { font-size: 28px; }
+
+.card.l  { width: 98px; height: 137px; border-radius: 10px; gap: 4px; }
+.card.l .rk { font-size: 44px; }
+.card.l .st { font-size: 36px; }
+
+.card.xl { width: 128px; height: 179px; border-radius: 13px; gap: 5px; }
+.card.xl .rk { font-size: 58px; }
+.card.xl .st { font-size: 47px; }
 
 /* --- Tisch --- */
 .seats { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
@@ -215,7 +250,7 @@ input.code {
 .seat .head { display: flex; align-items: center; justify-content: center; gap: 8px; }
 .seat .name { font-size: 14px; font-weight: 800; color: var(--muted); }
 .seat.active .name { color: var(--text); }
-.seat .cards { display: flex; justify-content: center; margin-top: 6px; min-height: 44px; align-items: center; }
+.seat .cards { display: flex; justify-content: center; margin-top: 6px; min-height: 48px; align-items: center; }
 .seat .cards .card { margin: 0 -5px; }
 .seat .off { color: var(--danger); font-size: 11px; margin-top: 3px; }
 
@@ -225,15 +260,16 @@ input.code {
   color: #3A2200; font-size: 14px; font-weight: 800;
 }
 
+/* Kein rotateX mehr: 3D-Kippen laesst das Handy alles unscharf rechnen. */
 .felt {
-  margin: 12px 0 6px; border-radius: 130px;
+  margin: 12px 0 6px; border-radius: 26px;
   background: linear-gradient(160deg, var(--felt), var(--felt-2));
-  border: 7px solid var(--wood);
-  padding: 16px 12px; min-height: 120px;
+  border: 5px solid var(--wood);
+  padding: 14px 12px; min-height: 120px;
   display: flex; align-items: center; justify-content: center; flex-direction: column;
-  transform: perspective(950px) rotateX(10deg);
-  box-shadow: 0 14px 28px rgba(0,0,0,.5), inset 0 0 60px rgba(0,0,0,.25);
+  box-shadow: 0 10px 22px rgba(0,0,0,.45), inset 0 0 50px rgba(0,0,0,.22);
 }
+.felt .line { gap: 8px; }
 .felt .tag {
   font-size: 11px; font-weight: 800; letter-spacing: .9px;
   text-transform: uppercase; padding: 4px 11px; border-radius: 9px; margin: 5px 0 6px;
@@ -382,30 +418,48 @@ button.step {
   border: 1.5px solid var(--border-strong); box-shadow: none;
 }
 
-/* --- Pferderennen: die Bahn --- */
+/* --- Pferderennen: die Bahn laeuft von oben nach unten --- */
 .track {
-  background: linear-gradient(160deg, var(--felt), var(--felt-2));
-  border: 5px solid var(--wood); border-radius: 20px;
-  padding: 8px 6px; margin: 10px 0;
+  background: linear-gradient(170deg, var(--felt), var(--felt-2));
+  border: 5px solid var(--wood); border-radius: 22px;
+  padding: 8px 7px 12px; margin: 10px 0;
+  box-shadow: 0 10px 22px rgba(0,0,0,.45), inset 0 0 50px rgba(0,0,0,.2);
 }
-.lane {
-  display: grid; grid-template-columns: repeat(7, 1fr);
-  gap: 2px; align-items: center; min-height: 50px;
+.rrow {
+  display: grid; grid-template-columns: 58px repeat(4, 1fr);
+  gap: 4px; align-items: center; min-height: 30px;
 }
-.lane.head { min-height: 52px; margin-bottom: 2px; }
-.lane .slot {
-  display: flex; align-items: center; justify-content: center;
-  height: 48px; border-radius: 7px;
-}
-.lane .slot.start { border-right: 2px dashed rgba(255,255,255,.4); }
-.lane .slot.on { background: rgba(255,255,255,.1); }
-.lane.win .slot.on { background: rgba(255,201,60,.32); box-shadow: 0 0 0 2px var(--gold) inset; }
-.lane.moved .slot.on { box-shadow: 0 0 0 2px var(--mint) inset; }
-.lane .flag { font-size: 20px; }
-.track .bets { margin: -2px 0 6px; }
+.rrow.head { min-height: 0; padding-bottom: 6px; }
+.rrow.startzeile { border-bottom: 2px dashed rgba(255,255,255,.45); padding-bottom: 4px; }
 
-.drawn { display: flex; flex-direction: column; align-items: center; gap: 6px; margin: 10px 0; }
-.drawn .note { color: var(--muted); font-size: 13px; font-weight: 700; }
+.rrow .mark { display: flex; align-items: center; justify-content: center; }
+.mark.start {
+  font-size: 10px; font-weight: 800; letter-spacing: 1px; color: rgba(255,255,255,.6);
+}
+.mark.ziel { font-size: 26px; }
+
+.rrow .cell {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 26px; border-radius: 10px;
+}
+.rrow .cell.hier { background: rgba(255,255,255,.12); padding: 3px 0; }
+.rrow .cell.win { background: rgba(255,201,60,.3); box-shadow: 0 0 0 2px var(--gold) inset; }
+.rrow .cell.moved { box-shadow: 0 0 0 2px var(--mint) inset; }
+
+.hsuit { font-size: 26px; line-height: 1; }
+.hsuit.red { color: #FF6E85; }
+.hsuit.black { color: #DDD6FF; }
+.rrow.head .cell { flex-direction: column; gap: 3px; }
+.track .bets { gap: 3px; }
+.track .bet { font-size: 10px; padding: 1px 6px 1px 1px; }
+.track .bet .av.sm { width: 16px; height: 16px; font-size: 9px; }
+
+.drawn {
+  display: flex; align-items: center; justify-content: center; gap: 14px;
+  background: var(--surface); border: 1.5px solid var(--border);
+  border-radius: 18px; padding: 12px 16px; margin: 0 0 10px;
+}
+.drawn .note { color: var(--text); font-size: 16px; font-weight: 800; }
 .winner { display: flex; justify-content: center; margin: 10px 0 16px; }
 
 .offline-bar {
