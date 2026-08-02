@@ -6,74 +6,12 @@
 import { MIN_EINSATZ, MAX_EINSATZ, ZIEL, STRECKENKARTEN } from "/game/race.js";
 
 export const SPIELE = [
-  {
-    id: "bus",
-    name: "Busfahren",
-    kurz: "Raten, ablegen, Pyramide – der Letzte fährt Bus.",
-    dauer: "ca. 15 Min.",
-  },
-  {
-    id: "race",
-    name: "Pferderennen",
-    kurz: "Auf ein Ass setzen und hoffen, dass es zuerst im Ziel ist.",
-    dauer: "ca. 5 Min.",
-  },
+  { id: "bus", emoji: "🚌", name: "Busfahren", kurz: "ca. 15 Min." },
+  { id: "race", emoji: "🐎", name: "Pferderennen", kurz: "ca. 5 Min." },
 ];
 
-// --- Bilder ----------------------------------------------------------------
-// Kleine Zeichnungen direkt als SVG: keine Bilddateien, nichts nachzuladen,
-// auch bei schlechtem Empfang sofort da.
-
-const karte = (x, y, dreh, zeichen, rot) => `
-  <g transform="translate(${x} ${y}) rotate(${dreh})">
-    <rect x="-11" y="-15" width="22" height="30" rx="3.5" fill="#FFFDF8" stroke="#E2DCCF"/>
-    <text x="0" y="6" text-anchor="middle" font-size="16" font-weight="bold"
-          fill="${rot ? "#E8324A" : "#1A1630"}" font-family="serif">${zeichen}</text>
-  </g>`;
-
-const ruecken = (x, y, dreh = 0) => `
-  <g transform="translate(${x} ${y}) rotate(${dreh})">
-    <rect x="-11" y="-15" width="22" height="30" rx="3.5" fill="#5A41C8" stroke="#8B6BFF"/>
-    <rect x="-7.5" y="-11.5" width="15" height="23" rx="2" fill="none" stroke="#B9A6FF" stroke-width="1.2"/>
-  </g>`;
-
-const BILDER = {
-  // Pyramide aus verdeckten Karten, oben eine offene Bildkarte.
-  bus: `
-    <svg viewBox="0 0 200 116" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      ${ruecken(58, 96)} ${ruecken(84, 96)} ${ruecken(110, 96)} ${ruecken(136, 96)}
-      ${ruecken(71, 62)} ${ruecken(97, 62)} ${ruecken(123, 62)}
-      ${ruecken(84, 28)} ${karte(110, 28, 0, "♦", true)}
-      <text x="16" y="40" font-size="26">🚌</text>
-    </svg>`,
-
-  // Vier Bahnen, die Asse am Start, rechts die Ziellinie.
-  race: `
-    <svg viewBox="0 0 200 116" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <rect x="0" y="4" width="200" height="108" rx="10" fill="#16694F"/>
-      ${[0, 1, 2, 3]
-        .map(
-          (i) =>
-            `<line x1="10" y1="${29 + i * 26}" x2="190" y2="${29 + i * 26}"
-               stroke="#0E5540" stroke-width="1.5" stroke-dasharray="6 5"/>`
-        )
-        .join("")}
-      ${karte(34, 20, -5, "♥", true)}
-      ${karte(30, 46, 4, "♦", true)}
-      ${karte(44, 72, -3, "♣", false)}
-      ${karte(26, 96, 2, "♠", false)}
-      ${ruecken(104, 16, 6)} ${ruecken(132, 58, -5)} ${ruecken(118, 96, 3)}
-      ${[0, 1, 2, 3, 4, 5, 6, 7]
-        .map(
-          (r) =>
-            `<rect x="170" y="${6 + r * 13}" width="9" height="13" fill="${r % 2 ? "#F8F5FF" : "#1A1630"}"/>
-             <rect x="179" y="${6 + r * 13}" width="9" height="13" fill="${r % 2 ? "#1A1630" : "#F8F5FF"}"/>`
-        )
-        .join("")}
-    </svg>`,
-};
-
-export const spielBild = (id) => BILDER[id] ?? "";
+export const spielName = (id) => SPIELE.find((s) => s.id === id)?.name ?? "";
+export const spielEmoji = (id) => SPIELE.find((s) => s.id === id)?.emoji ?? "🃏";
 
 // --- Regeln ----------------------------------------------------------------
 // Die Zahlen kommen aus der Spiellogik, damit Text und Regeln nie
