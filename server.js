@@ -146,6 +146,18 @@ io.on("connection", (socket) => {
     if (lobby.game) socket.emit("game", lobby.game);
   });
 
+  /** Eine neue Runde in derselben Lobby beginnen. */
+  function neueRunde(lobby) {
+    lobby.game = initGame(
+      lobby.players.map((p) => ({ id: p.id, name: p.name })),
+      undefined,
+      lobby.players.find((p) => p.isHost)?.id ?? lobby.players[0].id
+    );
+    lobby.lastActivity = Date.now();
+    io.to(lobby.code).emit("lobby", lobbyView(lobby));
+    io.to(lobby.code).emit("game", lobby.game);
+  }
+
   socket.on("startGame", () => {
     const found = findBySocket(socket.id);
     if (!found) return;
@@ -156,15 +168,32 @@ io.on("connection", (socket) => {
       return socket.emit("errorMsg", `Ihr braucht mindestens ${MIN_PLAYERS} Spieler.`);
     }
     if (lobby.game) return;
+    neueRunde(lobby);
+  });
 
-    lobby.game = initGame(
-      lobby.players.map((p) => ({ id: p.id, name: p.name })),
-      undefined,
-      lobby.players.find((p) => p.isHost)?.id ?? lobby.players[0].id
-    );
+  // Nach dem Ergebnis: Die Lobby bleibt mit allen Spielern bestehen. Entweder
+  // geht es sofort in die naechste Runde oder alle landen wieder im Warteraum,
+  // von wo aus spaeter auch ein anderes Spiel gestartet werden kann.
+  socket.on("playAgain", ({ restart } = {}) => {
+    const found = findBySocket(socket.id);
+    if (!found) return;
+    const { lobby, playerId } = found;
+    const me = lobby.players.find((p) => p.id === playerId);
+    if (!me?.isHost) return socket.emit("errorMsg", "Nur der Host startet die nächste Runde.");
+
+    lobby.game = null;
+    // Wer waehrend der Runde weg ist, wird jetzt aus der Lobby genommen.
+    lobby.players = lobby.players.filter((p) => p.connected);
+    if (lobby.players.length === 0) {
+      lobbies.delete(lobby.code);
+      return;
+    }
+    if (!lobby.players.some((p) => p.isHost)) lobby.players[0].isHost = true;
     lobby.lastActivity = Date.now();
+
+    if (restart && lobby.players.length >= MIN_PLAYERS) return neueRunde(lobby);
     io.to(lobby.code).emit("lobby", lobbyView(lobby));
-    io.to(lobby.code).emit("game", lobby.game);
+    io.to(lobby.code).emit("backToLobby");
   });
 
   socket.on("action", (action) => {
