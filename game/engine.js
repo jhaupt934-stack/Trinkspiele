@@ -14,6 +14,12 @@
 //   4. "pyramid"  - der Verlierer kaempft sich von unten nach oben.
 //
 // Verteilte Schluecke darf man sich nie selbst geben.
+//
+// In Phase 2 koennen mehrere gleichzeitig ablegen. Deshalb ist "wer muss noch
+// verteilen" keine einzelne Person, sondern die Liste `pending`:
+//   pending = { "p-abc": 3, "p-xyz": 1 }
+// Jeder aus dieser Liste verteilt unabhaengig von den anderen - keiner muss
+// warten, bis ein anderer fertig ist.
 
 import { createDeck, createShuffledDeck, draw, isRed, rankValue, shuffle } from "./deck.js";
 
@@ -50,9 +56,11 @@ export function initGame(players, rng, hostId = null) {
     phase: "guess",
     round: 0,
     turn: 0,
-    pendingSips: 0,
+    pending: {},
+    runs: {},
     dist: 0,
-    lastSip: null,
+    sipLog: [],
+    sipSeq: 0,
     message: null,
   };
 }
@@ -60,16 +68,30 @@ export function initGame(players, rng, hostId = null) {
 export const currentPlayer = (g) => g.players[g.turn];
 export const playerById = (g, id) => g.players.find((p) => p.id === id);
 
-/** Wer darf gerade Schlucke verteilen? Der darf sie sich nicht selbst geben. */
-export function distributorId(g) {
-  if (g.phase === "guess" && g.pendingSips > 0) return g.players[g.turn].id;
-  if (g.phase === "rows" && g.pendingSips > 0) return g.pendingFromId ?? null;
-  return null;
+/** Wie viele Schluecke muss dieser Spieler gerade noch verteilen? */
+export const pendingFor = (g, id) => (id && g.pending ? g.pending[id] ?? 0 : 0);
+
+/** Wie viele Schluecke stehen insgesamt noch aus? */
+export const pendingTotal = (g) =>
+  Object.values(g.pending ?? {}).reduce((a, b) => a + b, 0);
+
+/** Alle, die gerade verteilen - in Phase 2 koennen das mehrere gleichzeitig sein. */
+export const distributorIds = (g) =>
+  Object.keys(g.pending ?? {}).filter((id) => g.pending[id] > 0);
+
+/** An wen darf `fromId` Schluecke geben? An alle ausser sich selbst. */
+export function sipTargets(g, fromId) {
+  return g.players.filter((p) => p.id !== fromId);
 }
 
-export function sipTargets(g) {
-  const from = distributorId(g);
-  return g.players.filter((p) => p.id !== from);
+/** Setzt einen Verteil-Auftrag: `anzahl` Schluecke fuer `id`, als neue Runde. */
+function addPending(g, id, anzahl) {
+  const dist = (g.dist ?? 0) + 1;
+  return {
+    dist,
+    runs: { ...(g.runs ?? {}), [id]: dist },
+    pending: { ...(g.pending ?? {}), [id]: pendingFor(g, id) + anzahl },
+  };
 }
 
 /**
@@ -104,40 +126,59 @@ function refill(g, need) {
 // ---------------------------------------------------------------------------
 // Benachrichtigung "du hast Schlucke bekommen"
 // ---------------------------------------------------------------------------
+//
+// Waehrend jemand verteilt, wird nur mitgezaehlt (`draft`). Erst wenn der
+// letzte Schluck vergeben ist, geht die Meldung raus - und zwar eine pro
+// Empfaenger mit der Gesamtzahl. Sonst wuerde bei drei Schlucken dreimal
+// hintereinander etwas aufpoppen.
 
-/**
- * Merkt sich, wer wem gerade Schlucke gegeben hat. Mehrere Schlucke aus
- * derselben Verteilrunde an dieselbe Person werden zusammengezaehlt, damit
- * nicht drei Meldungen hintereinander aufpoppen.
- */
-function recordSip(g, fromId, toId) {
-  const prev = g.lastSip;
-  const sameRun = prev && prev.dist === (g.dist ?? 0) && prev.fromId === fromId && prev.toId === toId;
-  return {
-    dist: g.dist ?? 0,
-    fromId,
-    toId,
-    count: sameRun ? prev.count + 1 : 1,
-    seq: (prev?.seq ?? 0) + 1,
-  };
+/** Einen Schluck zum Zwischenstand der laufenden Verteilung dazuzaehlen. */
+function noteSip(g, fromId, toId) {
+  const bisher = (g.draft ?? {})[fromId] ?? {};
+  return { ...(g.draft ?? {}), [fromId]: { ...bisher, [toId]: (bisher[toId] ?? 0) + 1 } };
 }
 
-export function handOutSip(g, targetId) {
-  const fromId = distributorId(g);
-  if (targetId === fromId || g.pendingSips <= 0) return g;
+/** Verteilung abgeschlossen: fuer jeden Empfaenger genau eine Meldung schreiben. */
+function flushSips(g, fromId) {
+  const stand = (g.draft ?? {})[fromId];
+  const draft = { ...(g.draft ?? {}) };
+  delete draft[fromId];
+  if (!stand) return { draft };
+
+  let seq = g.sipSeq ?? 0;
+  const neu = Object.entries(stand).map(([toId, count]) => ({
+    seq: ++seq,
+    run: (g.runs ?? {})[fromId] ?? 0,
+    fromId,
+    toId,
+    count,
+  }));
+  return { draft, sipSeq: seq, sipLog: [...(g.sipLog ?? []), ...neu].slice(-24) };
+}
+
+/**
+ * `fromId` gibt `targetId` einen Schluck. Mehrere Spieler koennen das
+ * gleichzeitig tun - jeder arbeitet seinen eigenen Eintrag in `pending` ab.
+ */
+export function handOutSip(g, targetId, fromId) {
+  const offen = pendingFor(g, fromId);
+  if (!fromId || offen <= 0 || targetId === fromId) return g;
+  if (!playerById(g, targetId)) return g;
 
   const players = g.players.map((p) => (p.id === targetId ? { ...p, sips: p.sips + 1 } : p));
-  const left = g.pendingSips - 1;
-  const lastSip = recordSip(g, fromId, targetId);
+  const pending = { ...g.pending };
+  if (offen - 1 > 0) pending[fromId] = offen - 1;
+  else delete pending[fromId];
 
-  if (g.phase === "guess") {
-    if (left > 0) return { ...g, players, lastSip, pendingSips: left };
-    return nextTurn({ ...g, players, lastSip, pendingSips: 0 }, null);
-  }
-  if (g.phase === "rows") {
-    return { ...g, players, lastSip, pendingSips: left, pendingFromId: left > 0 ? g.pendingFromId : null };
-  }
-  return g;
+  const draft = noteSip(g, fromId, targetId);
+  let next = { ...g, players, pending, draft };
+
+  // Fertig? Dann jetzt die gesammelten Meldungen verschicken.
+  if (offen - 1 === 0) next = { ...next, ...flushSips(next, fromId) };
+
+  // In Phase 1 verteilt immer nur einer - danach ist der Naechste dran.
+  if (g.phase === "guess" && pendingTotal(next) === 0) return nextTurn(next, null);
+  return next;
 }
 
 // ---------------------------------------------------------------------------
@@ -146,7 +187,7 @@ export function handOutSip(g, targetId) {
 
 /** guess: "red"|"black" | "higher"|"lower" | "inside"|"outside" | "seen"|"new" */
 export function makeGuess(g, guess) {
-  if (g.phase !== "guess" || g.pendingSips > 0) return g;
+  if (g.phase !== "guess" || pendingTotal(g) > 0) return g;
 
   const { drawn, rest } = draw(g.deck, 1);
   const card = drawn[0];
@@ -193,8 +234,7 @@ export function makeGuess(g, guess) {
       ...g,
       players,
       deck: rest,
-      pendingSips: sips,
-      dist: (g.dist ?? 0) + 1,
+      ...addPending(g, player.id, sips),
       message: `${player.name} hat richtig geraten und verteilt ${sips} Schluck${plural}.`,
     };
   }
@@ -213,7 +253,7 @@ function nextTurn(g, message) {
     round += 1;
   }
   if (round > 3) return startRows(g, message);
-  return { ...g, phase: "guess", round, turn, pendingSips: 0, message };
+  return { ...g, phase: "guess", round, turn, pending: {}, message };
 }
 
 // ---------------------------------------------------------------------------
@@ -240,8 +280,7 @@ function startRows(g, message) {
     order,
     cursor: 0,
     revealedNow: false,
-    pendingSips: 0,
-    pendingFromId: null,
+    pending: {},
     message: message ?? "Jetzt die zwei Reihen. Passende Karten ablegen!",
   };
 }
@@ -255,6 +294,7 @@ export function currentRowCard(g) {
 
 export function revealRow(g) {
   if (g.phase !== "rows" || g.revealedNow || g.cursor >= g.order.length) return g;
+  if (pendingTotal(g) > 0) return g; // erst muessen alle ihre Schluecke los sein
   const slot = g.order[g.cursor];
   const flip = (row) => row.map((c, i) => (i === slot.index ? { ...c, revealed: true } : c));
   return {
@@ -273,8 +313,13 @@ export function playersWithMatch(g) {
   return g.players.filter((p) => p.cards.some((c) => c.rank === cur.card.card.rank));
 }
 
+/**
+ * Ablegen. Mehrere Spieler duerfen auf dieselbe aufgedeckte Karte ablegen, und
+ * zwar auch dann, wenn ein anderer gerade noch am Verteilen ist - jeder bekommt
+ * seinen eigenen Verteil-Auftrag und arbeitet ihn unabhaengig ab.
+ */
 export function discardCard(g, playerId) {
-  if (g.phase !== "rows" || !g.revealedNow || g.pendingSips > 0) return g;
+  if (g.phase !== "rows" || !g.revealedNow) return g;
   const cur = currentRowCard(g);
   if (!cur) return g;
 
@@ -301,15 +346,13 @@ export function discardCard(g, playerId) {
   return {
     ...g,
     players,
-    pendingSips: value,
-    pendingFromId: playerId,
-    dist: (g.dist ?? 0) + 1,
+    ...addPending(g, playerId, value),
     message: `${player.name} legt ab und verteilt ${value} Schluck${plural}.`,
   };
 }
 
 export function nextRow(g) {
-  if (g.phase !== "rows" || g.pendingSips > 0) return g;
+  if (g.phase !== "rows" || pendingTotal(g) > 0) return g;
   const cursor = g.cursor + 1;
   if (cursor >= g.order.length) return decideDriver({ ...g, cursor, revealedNow: false });
   return { ...g, cursor, revealedNow: false, message: null };
@@ -443,6 +486,8 @@ function startPyramid(g, driverId, extraMessage) {
     flipped: null,
     drawn: null,
     candidates: null,
+    pending: {},
+    draft: {},
     phase: "pyramid",
     driverId,
     rows,
@@ -543,10 +588,12 @@ export function restartPyramid(g) {
 
 export const finishGame = (g) => ({ ...g, phase: "finished", message: null });
 
-/** Wer ist gerade am Zug? Null, wenn die Phase keinen festen Spieler hat. */
+/**
+ * Wer ist gerade am Zug? Null, wenn die Phase keinen festen Spieler hat -
+ * in Phase 2 sind das oft mehrere gleichzeitig, siehe `distributorIds`.
+ */
 export function activePlayerId(g) {
   if (g.phase === "guess") return g.players[g.turn].id;
-  if (g.phase === "rows") return g.pendingSips > 0 ? g.pendingFromId : null;
   if (g.phase === "pyramid") return g.driverId;
   return null;
 }

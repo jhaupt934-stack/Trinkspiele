@@ -10,6 +10,8 @@ import {
   handOutSip,
   makeGuess,
   nextRow,
+  pendingFor,
+  pendingTotal,
   pickPyramid,
   restartPyramid,
   revealRow,
@@ -17,12 +19,17 @@ import {
   tiebreakFlip,
 } from "./engine.js";
 
-export function applyAction(g, action) {
+/**
+ * `actorId` ist der Spieler, von dem die Aktion wirklich kommt. Online setzt der
+ * Server ihn - dadurch kann niemand Schluecke im Namen eines anderen verteilen.
+ * Lokal steht der Verteiler im Feld `fromId` der Aktion.
+ */
+export function applyAction(g, action, actorId = null) {
   switch (action.type) {
     case "guess":
       return makeGuess(g, action.value);
     case "handOutSip":
-      return handOutSip(g, action.targetId);
+      return handOutSip(g, action.targetId, actorId ?? action.fromId);
     case "revealRow":
       return revealRow(g);
     case "discard":
@@ -50,27 +57,28 @@ export function mayAct(g, playerId, action) {
 
   switch (action.type) {
     case "guess":
-      return g.phase === "guess" && g.pendingSips === 0 && g.players[g.turn].id === playerId;
+      return g.phase === "guess" && pendingTotal(g) === 0 && g.players[g.turn].id === playerId;
 
+    // Verteilen darf jeder, der noch offene Schluecke hat - in Phase 2 koennen
+    // das mehrere gleichzeitig sein, keiner muss auf den anderen warten.
     case "handOutSip":
-      if (g.phase === "guess") return g.pendingSips > 0 && g.players[g.turn].id === playerId;
-      if (g.phase === "rows") return g.pendingSips > 0 && g.pendingFromId === playerId;
-      return false;
+      return pendingFor(g, playerId) > 0;
 
     // Aufdecken und weiterblaettern macht nur der Host, damit nicht mehrere
     // gleichzeitig durchklicken. Ohne Host (lokales Spiel) darf es jeder.
+    // Solange noch jemand verteilt, geht es nicht weiter.
     case "revealRow":
     case "nextRow":
-      return g.phase === "rows" && (!g.hostId || g.hostId === playerId);
+      return g.phase === "rows" && pendingTotal(g) === 0 && (!g.hostId || g.hostId === playerId);
 
     // Das Stechen steuert ebenfalls der Host.
     case "tiebreakFlip":
     case "tiebreakDraw":
       return g.phase === "tiebreak" && (!g.hostId || g.hostId === playerId);
 
-    // Ablegen darf nur, wem die Karte gehoert.
+    // Ablegen darf nur, wem die Karte gehoert - auch waehrend andere verteilen.
     case "discard":
-      return g.phase === "rows" && action.playerId === playerId;
+      return g.phase === "rows" && g.revealedNow === true && action.playerId === playerId;
 
     case "pickPyramid":
     case "restartPyramid":
@@ -87,5 +95,5 @@ export function mayAct(g, playerId, action) {
 /** Ein Zug vom Client: pruefen, anwenden, Ergebnis zurueckgeben. */
 export function handleAction(g, playerId, action) {
   if (!mayAct(g, playerId, action)) return { game: g, rejected: "Du bist gerade nicht dran." };
-  return { game: applyAction(g, action), rejected: null };
+  return { game: applyAction(g, action, playerId), rejected: null };
 }
