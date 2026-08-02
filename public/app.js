@@ -22,8 +22,19 @@ import {
   MIN_PLAYERS,
   MAX_PLAYERS,
 } from "/game/engine.js";
+import {
+  initRace,
+  betsOn,
+  allBetsIn,
+  ZIEL,
+  STRECKENKARTEN,
+  MIN_EINSATZ,
+  MAX_EINSATZ,
+  HORSE_ORDER,
+} from "/game/race.js";
 import { applyAction, mayAct } from "/game/actions.js";
-import { isRed, suitSymbol } from "/game/deck.js";
+import { isRed, suitSymbol, suitName } from "/game/deck.js";
+import { SPIELE, spielBild, regelnHtml } from "/games-info.js";
 
 const el = document.getElementById("app");
 
@@ -34,8 +45,12 @@ const savedName = () => (localStorage.getItem(NAME_KEY) ?? "").trim();
 const saveName = (n) => localStorage.setItem(NAME_KEY, n.trim());
 
 const S = {
-  screen: savedName() ? "home" : "name", // name | home | setup | lobby | game
+  // name | home | games | rules | setup | lobby | game
+  screen: savedName() ? "home" : "name",
   mode: "local", // local | online
+  spiel: "bus", // bus | race
+  rulesFor: null, // welches Spiel gerade erklärt wird
+  bet: { suit: null, amount: 3 }, // Wett-Entwurf beim Pferderennen
   name: savedName(),
   names: ["", ""],
   game: null,
@@ -225,20 +240,55 @@ function homeScreen() {
       <button class="ghost small" data-a="editName">ändern</button>
     </div>
 
-    <h1>Busfahren 🃏</h1>
-    <p class="sub">Karten raten, zwei Reihen, dann die Pyramide. 2 bis 8 Spieler.</p>
+    <h1>Trinkspiele 🍻</h1>
+    <p class="sub">Wie wollt ihr spielen?</p>
 
     <div class="stack">
       <button data-a="online">🌍 Online mit Freunden</button>
       <button class="secondary" data-a="local">📱 Alle an einem Handy</button>
-    </div>
+    </div>`;
+}
 
-    <p class="sub" style="margin-top:22px">
-      <strong>Online:</strong> Du erstellst eine Lobby und bekommst einen Code.
-      Deine Freunde öffnen denselben Link, tippen den Code ein – und jeder sieht
-      seine eigenen Karten groß vor sich.<br><br>
-      <strong>An einem Handy:</strong> Ihr reicht ein Gerät reihum weiter.
-    </p>`;
+/** Spielauswahl. Erst nach dem Antippen kommen Regeln und Weiter zum Vorschein. */
+function gamesScreen() {
+  const kacheln = SPIELE.map(
+    (s) => `
+    <button class="gamecard ${S.spiel === s.id ? "sel" : ""}" data-a="pickGame" data-id="${s.id}">
+      <div class="pic">${spielBild(s.id)}</div>
+      <div class="txt">
+        <div class="nm">${esc(s.name)}</div>
+        <div class="kz">${esc(s.kurz)}</div>
+        <div class="dr">${esc(s.dauer)} · 2 bis ${MAX_PLAYERS} Spieler</div>
+      </div>
+    </button>`
+  ).join("");
+
+  const gewaehlt = SPIELE.find((s) => s.id === S.spiel);
+
+  return `
+    <h2>Welches Spiel?</h2>
+    <p class="sub">${
+      S.mode === "online" ? "Du machst gleich die Lobby auf." : "Ihr reicht ein Gerät herum."
+    }</p>
+    <div class="games">${kacheln}</div>
+    <div class="actions">
+      <div class="row">
+        <button class="secondary" data-a="rules" data-id="${S.spiel}">📖 Regeln</button>
+        <button data-a="gameNext">${esc(gewaehlt.name)} spielen</button>
+      </div>
+      <button class="ghost wide" data-a="home">Zurück</button>
+    </div>`;
+}
+
+function rulesScreen() {
+  const s = SPIELE.find((x) => x.id === S.rulesFor) ?? SPIELE[0];
+  return `
+    <h2>${esc(s.name)}</h2>
+    <p class="sub">${esc(s.kurz)}</p>
+    <div class="rules">${regelnHtml(s.id)}</div>
+    <div class="actions">
+      <button class="wide" data-a="rulesBack">Alles klar</button>
+    </div>`;
 }
 
 function setupScreen() {
@@ -267,10 +317,22 @@ function lobbyScreen() {
   if (S.lobby) {
     const me = S.lobby.players.find((p) => p.id === S.myId);
     const enough = S.lobby.players.length >= MIN_PLAYERS;
+    const spiel = SPIELE.find((s) => s.id === (S.lobby.spiel ?? "bus")) ?? SPIELE[0];
     return `
       <h2>Eure Lobby</h2>
       <p class="sub">Diesen Code an deine Freunde weitergeben:</p>
       <div class="codebox"><div class="code">${S.lobby.code}</div></div>
+
+      <div class="picked">
+        <div class="pic sm">${spielBild(spiel.id)}</div>
+        <div class="txt">
+          <div class="nm">${esc(spiel.name)}</div>
+          <div class="kz">${esc(spiel.kurz)}</div>
+        </div>
+        <button class="ghost small" data-a="rules" data-id="${spiel.id}">Regeln</button>
+      </div>
+      ${me?.isHost ? `<button class="ghost wide" data-a="changeGame">Anderes Spiel wählen</button>` : ""}
+
       ${!S.connected ? `<p class="error">Verbindung unterbrochen, versuche neu zu verbinden…</p>` : ""}
       <p class="label">Dabei (${S.lobby.players.length})</p>
       ${S.lobby.players
@@ -297,9 +359,12 @@ function lobbyScreen() {
   }
 
   // Erstellen oder beitreten - der Name steht ja schon fest
+  const spiel = SPIELE.find((s) => s.id === S.spiel) ?? SPIELE[0];
   return `
     <h2>Online mit Freunden</h2>
-    <p class="sub">Du spielst als <strong>${esc(S.name)}</strong>.</p>
+    <p class="sub">Du spielst als <strong>${esc(S.name)}</strong>.
+    Deine neue Lobby wird für <strong>${esc(spiel.name)}</strong> aufgemacht –
+    wer beitritt, spielt mit, egal welches Spiel dort läuft.</p>
 
     <button class="wide" data-a="create">Neue Lobby erstellen</button>
 
@@ -586,24 +651,241 @@ function pyramidScreen(g) {
     <div class="actions">${footer}</div>`;
 }
 
+// ---------------------------------------------------------------------------
+// Pferderennen
+// ---------------------------------------------------------------------------
+
+const suitCls = (s) => (s === "hearts" || s === "diamonds" ? "red" : "black");
+
+/** Die kleinen Namensschilder unter einem Pferd - wer hat wie viel gesetzt? */
+function betChips(g, suit) {
+  const wetten = betsOn(g, suit);
+  if (wetten.length === 0) return "";
+  return (
+    `<div class="bets">` +
+    wetten
+      .map(
+        (p) =>
+          `<span class="bet ${p.id === meId() ? "mine" : ""}">${avatar(p.name, true)}` +
+          `<span>${esc(p.name)}</span><b>${g.bets[p.id].amount}</b></span>`
+      )
+      .join("") +
+    `</div>`
+  );
+}
+
+/** Ein Ass als Spielkarte - die Farbe ist das Pferd. */
+const horseCard = (suit, size = "s") =>
+  `<div class="card ${size} ${suitCls(suit)}">` +
+  `<span class="corner tl">A<span>${suitSymbol(suit)}</span></span>` +
+  `<span class="pip">${suitSymbol(suit)}</span>` +
+  `<span class="corner br">A<span>${suitSymbol(suit)}</span></span></div>`;
+
+function betScreen(g) {
+  const meine = g.bets[meId()];
+  const binHost = S.mode === "local" || g.hostId === S.myId;
+  const fehlen = g.players.filter((p) => !g.bets[p.id]);
+
+  // Lokal setzt man reihum: der erste ohne Wette ist dran.
+  const wer = S.mode === "local" ? fehlen[0] ?? null : playerById(g, S.myId);
+  const entwurf = S.bet.suit ?? meine?.suit ?? null;
+  const betrag = Math.min(MAX_EINSATZ, Math.max(MIN_EINSATZ, S.bet.amount));
+
+  const pferde = HORSE_ORDER.map(
+    (suit) => `
+    <button class="horse ${entwurf === suit ? "sel" : ""}" data-a="pickHorse" data-suit="${suit}">
+      ${horseCard(suit, "m")}
+      <span class="nm">${suitName(suit)}</span>
+      ${betChips(g, suit)}
+    </button>`
+  ).join("");
+
+  let footer;
+  if (!wer) {
+    footer = binHost
+      ? `<button class="wide" data-a="startRace">Rennen starten 🏁</button>`
+      : `<p class="banner">Alle haben gesetzt. ${esc(
+          playerById(g, g.hostId)?.name ?? "Der Host"
+        )} startet das Rennen.</p>`;
+  } else if (meine && S.mode !== "local") {
+    // Schon gesetzt und getrunken - jetzt gibt es nichts mehr zu tun.
+    footer = `<p class="banner">Du hast <strong>${meine.amount}</strong> auf
+      <strong>${suitName(meine.suit)}</strong> gesetzt und getrunken.
+      Warte noch auf: ${fehlen.map((p) => esc(p.name)).join(", ")}</p>`;
+  } else {
+    const schnell = [1, 2, 3, 5, 10, 20].filter((n) => n <= MAX_EINSATZ);
+    footer = `
+      <div class="panel accent">
+        <h3>${S.mode === "local" ? esc(wer.name) + ": " : ""}Einsatz${
+      entwurf ? " auf " + suitName(entwurf) : ""
+    }</h3>
+        <p class="hint">${
+          entwurf
+            ? "Wie viele Schlücke? Die trinkst du sofort – zurück geht dann nichts mehr."
+            : "Erst ein Pferd antippen, dann den Einsatz."
+        }</p>
+        <div class="stepper">
+          <button class="step" data-a="betMinus" ${betrag <= MIN_EINSATZ ? "disabled" : ""}>−</button>
+          <span class="num">${betrag}</span>
+          <button class="step" data-a="betPlus" ${betrag >= MAX_EINSATZ ? "disabled" : ""}>+</button>
+        </div>
+        <div class="chips">
+          ${schnell
+            .map((n) => `<button class="small ${n === betrag ? "accent" : "secondary"}" data-a="betSet" data-n="${n}">${n}</button>`)
+            .join("")}
+        </div>
+      </div>
+      <button class="wide" data-a="placeBet" ${entwurf ? "" : "disabled"}>
+        ${betrag} auf ${entwurf ? suitName(entwurf) : "…"} setzen &amp; trinken 🍺</button>`;
+  }
+
+  return `
+    <h2>Wetten 🐎</h2>
+    <p class="sub">Der Einsatz wird <strong>sofort getrunken</strong> – auch von
+    den späteren Gewinnern. Gewinnt dein Pferd, darfst du am Ende das Doppelte
+    verteilen.</p>
+    <p class="sub">${
+      fehlen.length
+        ? `Es fehlen noch: ${fehlen.map((p) => esc(p.name)).join(", ")}`
+        : "Alle haben gesetzt und getrunken."
+    }</p>
+    ${g.message ? `<p class="msg">${esc(g.message)}</p>` : ""}
+    <div class="horses">${pferde}</div>
+    <div class="actions">${footer}</div>`;
+}
+
+function raceScreen(g) {
+  const binHost = S.mode === "local" || g.hostId === S.myId;
+
+  // Kopfzeile: die Streckenkarten sitzen neben den Feldern 1 bis 5.
+  const kopf =
+    `<div class="lane head"><span class="slot start"></span>` +
+    Array.from({ length: ZIEL }, (_, i) => {
+      const feld = i + 1;
+      if (feld > STRECKENKARTEN) return `<span class="slot"><span class="flag">🏁</span></span>`;
+      const s = g.side[feld - 1];
+      return `<span class="slot">${cardHtml(s.card, "xs", { faceDown: !s.revealed })}</span>`;
+    }).join("") +
+    `</div>`;
+
+  const bahnen = HORSE_ORDER.map((suit) => {
+    const pos = g.horses[suit];
+    const felder = Array.from({ length: ZIEL + 1 }, (_, i) => {
+      const hier = i === pos;
+      return `<span class="slot ${i === 0 ? "start" : ""} ${hier ? "on" : ""}">${
+        hier ? horseCard(suit, "xs") : ""
+      }</span>`;
+    }).join("");
+    return `
+      <div class="lane ${g.winner === suit ? "win" : ""} ${
+      g.lastMove?.suit === suit ? "moved" : ""
+    }">${felder}</div>
+      ${betChips(g, suit)}`;
+  }).join("");
+
+  const gezogen = g.flipped
+    ? `<div class="drawn">${cardHtml(g.flipped, "m")}<span class="note">${suitName(
+        g.flipped.suit
+      )} zieht vor</span></div>`
+    : `<div class="drawn">${cardHtml(null, "m", { faceDown: true })}<span class="note">Noch keine Karte</span></div>`;
+
+  const footer = binHost
+    ? `<button class="wide" data-a="flip">Nächste Karte aufdecken</button>`
+    : `<p class="banner">${esc(playerById(g, g.hostId)?.name ?? "Der Host")} deckt auf.</p>`;
+
+  return `
+    <h2>Das Rennen 🏇</h2>
+    <p class="sub">${
+      g.nextSide > STRECKENKARTEN
+        ? "Alle Streckenkarten sind offen – jetzt geht's nur noch nach vorne."
+        : `Streckenkarte ${g.nextSide} kommt hoch, sobald alle Pferde auf Höhe ${g.nextSide} sind.`
+    }</p>
+    ${g.message ? `<p class="msg">${esc(g.message)}</p>` : ""}
+    <div class="track">${kopf}${bahnen}</div>
+    ${gezogen}
+    <div class="actions">${footer}</div>`;
+}
+
+function raceEndScreen(g) {
+  const sieger = g.winner;
+  const gewinner = betsOn(g, sieger);
+  const meins = g.bets[meId()]?.suit === sieger;
+
+  // Auszahlung: dieselbe Verteil-Mechanik wie bei Busfahren.
+  const panels =
+    S.mode === "local"
+      ? distributorIds(g)
+          .map((id) => handOutPanel(g, id))
+          .join("")
+      : handOutPanel(g, S.myId);
+
+  let footer = panels;
+  if (g.phase === "payout") {
+    footer += S.mode === "local" ? "" : othersDistributing(g, S.myId);
+    if (!panels && S.mode !== "local") {
+      footer += `<p class="banner">Die Gewinner verteilen gerade.</p>`;
+    }
+  } else {
+    footer += resultFooter(g);
+  }
+
+  return `
+    <h2>${suitName(sieger)} gewinnt! 🏁</h2>
+    <p class="sub">${
+      gewinner.length === 0
+        ? "Darauf hatte niemand gesetzt – alle Einsätze umsonst getrunken."
+        : meins
+        ? `Du hast richtig gesetzt und verteilst das Doppelte deines Einsatzes.`
+        : `Richtig gesetzt: ${gewinner.map((p) => esc(p.name)).join(", ")}.
+           Sie verteilen das Doppelte ihres Einsatzes.`
+    }</p>
+    <div class="winner">${horseCard(sieger, "l")}</div>
+    ${g.message ? `<p class="msg">${esc(g.message)}</p>` : ""}
+    ${
+      g.phase === "finished"
+        ? [...g.players]
+            .sort((a, b) => b.sips - a.sips)
+            .map(
+              (p, i) => `
+        <div class="result ${i === 0 ? "first" : ""}">
+          <span class="rank">${i + 1}</span>${avatar(p.name)}
+          <span class="name">${esc(p.name)}</span>
+          <span class="badge">${p.sips}</span>
+        </div>`
+            )
+            .join("")
+        : ""
+    }
+    <div class="actions">${footer}</div>`;
+}
+
+/**
+ * Was nach einer fertigen Runde unten steht. Online bleibt die Lobby mit
+ * demselben Code bestehen - ihr müsst euch nicht neu zusammenfinden, weder für
+ * noch eine Runde noch für ein anderes Spiel.
+ */
+function resultFooter(g) {
+  const name = SPIELE.find((s) => s.id === (g.game === "race" ? "race" : "bus"))?.name ?? "";
+  if (S.mode !== "online") {
+    return `<button class="wide" data-a="localAgain">Nochmal spielen 🎉</button>
+            <button class="ghost wide" data-a="home">Zurück zum Start</button>`;
+  }
+  if (g.hostId === S.myId) {
+    return `<button class="wide" data-a="againNow">Nochmal ${esc(name)} 🎉</button>
+            <button class="secondary wide" data-a="toLobby" style="margin-top:10px">
+              Lobby: anderes Spiel wählen</button>
+            <p class="sub" style="text-align:center;margin:10px 0 0">Die Lobby
+            <strong>${esc(S.lobby?.code ?? "")}</strong> bleibt bestehen.</p>`;
+  }
+  return `<p class="banner">${esc(playerById(g, g.hostId)?.name ?? "Der Host")} startet die
+          nächste Runde. Ihr bleibt zusammen in Lobby
+          <strong>${esc(S.lobby?.code ?? "")}</strong>.</p>
+          <button class="ghost wide" data-a="leave" style="margin-top:10px">Lobby verlassen</button>`;
+}
+
 function resultScreen(g) {
   const ranked = [...g.players].sort((a, b) => b.sips - a.sips);
-  const binHost = g.hostId === S.myId;
-
-  // Online bleibt die Lobby mit demselben Code bestehen - ihr müsst euch nicht
-  // neu zusammenfinden, weder für noch eine Runde noch für ein anderes Spiel.
-  const footer =
-    S.mode !== "online"
-      ? `<button class="wide" data-a="localAgain">Nochmal spielen 🎉</button>
-         <button class="ghost wide" data-a="home">Zurück zum Start</button>`
-      : binHost
-      ? `<button class="wide" data-a="againNow">Nochmal Busfahren 🎉</button>
-         <button class="secondary wide" data-a="toLobby" style="margin-top:10px">Zurück in die Lobby</button>
-         <p class="sub" style="text-align:center;margin:10px 0 0">Die Lobby
-         <strong>${esc(S.lobby?.code ?? "")}</strong> bleibt bestehen.</p>`
-      : `<p class="banner">${esc(playerById(g, g.hostId)?.name ?? "Der Host")} startet die
-         nächste Runde. Ihr bleibt zusammen in Lobby <strong>${esc(S.lobby?.code ?? "")}</strong>.</p>
-         <button class="ghost wide" data-a="leave" style="margin-top:10px">Lobby verlassen</button>`;
+  const footer = resultFooter(g);
 
   return `
     <h2>Ergebnis 🏆</h2>
@@ -645,9 +927,16 @@ function render() {
   let html;
   if (S.screen === "name") html = nameScreen();
   else if (S.screen === "home") html = homeScreen();
+  else if (S.screen === "games") html = gamesScreen();
+  else if (S.screen === "rules") html = rulesScreen();
   else if (S.screen === "setup") html = setupScreen();
   else if (S.screen === "lobby") html = lobbyScreen();
-  else if (S.game) {
+  else if (S.game?.game === "race") {
+    const g = S.game;
+    if (g.phase === "bets") html = betScreen(g);
+    else if (g.phase === "race") html = raceScreen(g);
+    else html = raceEndScreen(g);
+  } else if (S.game) {
     const g = S.game;
     if (g.phase === "guess") html = guessScreen(g);
     else if (g.phase === "rows") html = rowsScreen(g);
@@ -759,15 +1048,42 @@ el.addEventListener("click", (e) => {
 
     case "local":
       S.mode = "local";
-      S.screen = "setup";
-      // Der eigene Name steht schon in Feld 1.
-      if (!S.names[0]) S.names[0] = S.name;
+      S.screen = "games";
       break;
 
     case "online":
       S.mode = "online";
-      S.screen = "lobby";
-      connect();
+      S.screen = "games";
+      break;
+
+    // --- Spielauswahl ---
+    case "pickGame":
+      S.spiel = t.dataset.id;
+      break;
+
+    case "rules":
+      S.rulesFor = t.dataset.id;
+      S.screen = "rules";
+      break;
+
+    case "rulesBack":
+      S.screen = S.lobby && S.mode === "online" ? "lobby" : "games";
+      break;
+
+    case "gameNext":
+      if (S.mode === "online") {
+        S.screen = "lobby";
+        connect();
+        if (S.lobby) S.socket?.emit("setGame", { spiel: S.spiel }); // schon in der Lobby
+      } else {
+        S.screen = "setup";
+        if (!S.names[0]) S.names[0] = S.name; // eigener Name steht schon in Feld 1
+      }
+      break;
+
+    case "changeGame": // aus der Lobby heraus umstellen
+      S.spiel = S.lobby?.spiel ?? S.spiel;
+      S.screen = "games";
       break;
 
     case "add":
@@ -779,13 +1095,15 @@ el.addEventListener("click", (e) => {
 
     case "start": {
       const players = S.names.map((n, i) => ({ id: "p" + i, name: n.trim() || `Spieler ${i + 1}` }));
-      S.game = initGame(players); // ohne hostId: am selben Geraet darf jeder aufdecken
+      // ohne hostId: am selben Gerät darf jeder aufdecken
+      S.game = S.spiel === "race" ? initRace(players) : initGame(players);
+      S.bet = { suit: null, amount: 3 };
       S.screen = "game";
       break;
     }
 
     case "create":
-      connect().emit("createLobby", { name: S.name.trim() }, (res) => {
+      connect().emit("createLobby", { name: S.name.trim(), spiel: S.spiel }, (res) => {
         if (res.ok) Object.assign(S, { myId: res.playerId, lobby: res.lobby, connected: true });
         else S.error = res.error;
         render();
@@ -805,7 +1123,8 @@ el.addEventListener("click", (e) => {
       return;
 
     case "startOnline":
-      S.socket?.emit("startGame");
+      S.bet = { suit: null, amount: 3 };
+      S.socket?.emit("startGame", { spiel: S.lobby?.spiel ?? S.spiel });
       return;
 
     case "leave":
@@ -815,7 +1134,8 @@ el.addEventListener("click", (e) => {
       Object.assign(S, { screen: "home", mode: "local", lobby: null, myId: null, game: null });
       break;
 
-    case "againNow": // gleiche Lobby, sofort neue Runde
+    case "againNow": // gleiche Lobby, sofort dasselbe Spiel nochmal
+      S.bet = { suit: null, amount: 3 };
       S.socket?.emit("playAgain", { restart: true });
       return;
 
@@ -825,10 +1145,42 @@ el.addEventListener("click", (e) => {
 
     case "localAgain": {
       const players = S.game.players.map((p) => ({ id: p.id, name: p.name }));
-      S.game = initGame(players);
+      S.game = S.game.game === "race" ? initRace(players) : initGame(players);
+      S.bet = { suit: null, amount: 3 };
       S.screen = "game";
       break;
     }
+
+    // --- Pferderennen ---
+    case "pickHorse":
+      S.bet = { ...S.bet, suit: t.dataset.suit };
+      break;
+    case "betPlus":
+      S.bet = { ...S.bet, amount: Math.min(MAX_EINSATZ, S.bet.amount + 1) };
+      break;
+    case "betMinus":
+      S.bet = { ...S.bet, amount: Math.max(MIN_EINSATZ, S.bet.amount - 1) };
+      break;
+    case "betSet":
+      S.bet = { ...S.bet, amount: Number(t.dataset.n) };
+      break;
+
+    case "placeBet": {
+      // Lokal setzt der Reihe nach, wer noch keine Wette hat.
+      const wer =
+        S.mode === "local"
+          ? S.game.players.find((p) => !S.game.bets[p.id])?.id
+          : S.myId;
+      if (!wer || !S.bet.suit) break;
+      dispatch({ type: "bet", playerId: wer, suit: S.bet.suit, amount: S.bet.amount });
+      S.bet = { suit: null, amount: 3 };
+      break;
+    }
+
+    case "startRace":
+      return dispatch({ type: "startRace" });
+    case "flip":
+      return dispatch({ type: "flip" });
 
     // Spielzüge
     case "guess":

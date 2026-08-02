@@ -296,6 +296,106 @@ input.code {
 @keyframes toastIn  { from { transform: translateY(-90px); opacity: 0 } to { transform: none; opacity: 1 } }
 @keyframes toastOut { to { transform: translateY(-90px); opacity: 0 } }
 
+/* --- Spielauswahl --- */
+.games { display: flex; flex-direction: column; gap: 12px; margin-bottom: 8px; }
+.gamecard {
+  display: block; width: 100%; padding: 0; overflow: hidden; text-align: left;
+  background: var(--surface); border: 2px solid var(--border); border-radius: 20px;
+  box-shadow: none; color: var(--text);
+}
+.gamecard.sel { border-color: var(--mint); background: var(--surface-2); }
+.gamecard .pic { background: var(--surface-3); line-height: 0; }
+.gamecard .pic svg { width: 100%; height: auto; display: block; }
+.gamecard .txt { padding: 13px 15px; }
+.gamecard .nm { font-size: 19px; font-weight: 800; }
+.gamecard .kz { font-size: 14px; color: var(--muted); font-weight: 600; margin-top: 3px; }
+.gamecard .dr { font-size: 12px; color: var(--muted); font-weight: 600; margin-top: 6px; opacity: .8; }
+.gamecard.sel .nm::after { content: " ✓"; color: var(--mint); }
+
+/* Das gewaehlte Spiel oben in der Lobby */
+.picked {
+  display: flex; align-items: center; gap: 12px; margin: 14px 0 8px;
+  background: var(--surface); border: 1.5px solid var(--border);
+  border-radius: 18px; padding: 10px 12px;
+}
+.picked .pic { width: 74px; flex: none; line-height: 0; border-radius: 12px; overflow: hidden; }
+.picked .pic svg { width: 100%; height: auto; display: block; }
+.picked .txt { flex: 1; min-width: 0; }
+.picked .nm { font-size: 17px; font-weight: 800; }
+.picked .kz {
+  font-size: 12px; color: var(--muted); font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* --- Regeln --- */
+.rules {
+  background: var(--surface); border: 1.5px solid var(--border);
+  border-radius: 20px; padding: 4px 16px 16px;
+}
+.rules h3 {
+  font-size: 16px; font-weight: 800; margin: 18px 0 6px;
+  color: var(--mint); letter-spacing: -.2px;
+}
+.rules p { font-size: 15px; line-height: 1.6; color: var(--text); margin: 0 0 10px; }
+.rules ol { margin: 0 0 10px; padding-left: 22px; }
+.rules li { font-size: 15px; line-height: 1.6; margin-bottom: 5px; }
+.rules strong { color: var(--gold); }
+.rules em { color: var(--muted); font-style: normal; font-weight: 700; }
+
+/* --- Pferderennen: Wetten --- */
+.horses { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 0; }
+.horse {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 12px 8px; background: var(--surface); box-shadow: none;
+  border: 2px solid var(--border); border-radius: 18px; color: var(--text);
+}
+.horse.sel { border-color: var(--mint); background: var(--surface-2); }
+.horse .nm { font-size: 15px; font-weight: 800; }
+
+.bets { display: flex; flex-wrap: wrap; gap: 5px; justify-content: center; }
+.bet {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: var(--surface-3); border-radius: 999px; padding: 2px 8px 2px 2px;
+  font-size: 11px; font-weight: 700; color: var(--muted);
+}
+.bet.mine { background: var(--purple); color: #fff; }
+.bet b { color: var(--gold); font-size: 12px; }
+.bet .av.sm { width: 20px; height: 20px; font-size: 10px; }
+
+.stepper { display: flex; align-items: center; justify-content: center; gap: 18px; margin: 6px 0 12px; }
+.stepper .num { font-size: 40px; font-weight: 800; min-width: 62px; text-align: center; }
+button.step {
+  width: 54px; height: 54px; padding: 0; border-radius: 50%;
+  font-size: 28px; line-height: 1; background: var(--surface-3);
+  border: 1.5px solid var(--border-strong); box-shadow: none;
+}
+
+/* --- Pferderennen: die Bahn --- */
+.track {
+  background: linear-gradient(160deg, var(--felt), var(--felt-2));
+  border: 5px solid var(--wood); border-radius: 20px;
+  padding: 8px 6px; margin: 10px 0;
+}
+.lane {
+  display: grid; grid-template-columns: repeat(7, 1fr);
+  gap: 2px; align-items: center; min-height: 50px;
+}
+.lane.head { min-height: 52px; margin-bottom: 2px; }
+.lane .slot {
+  display: flex; align-items: center; justify-content: center;
+  height: 48px; border-radius: 7px;
+}
+.lane .slot.start { border-right: 2px dashed rgba(255,255,255,.4); }
+.lane .slot.on { background: rgba(255,255,255,.1); }
+.lane.win .slot.on { background: rgba(255,201,60,.32); box-shadow: 0 0 0 2px var(--gold) inset; }
+.lane.moved .slot.on { box-shadow: 0 0 0 2px var(--mint) inset; }
+.lane .flag { font-size: 20px; }
+.track .bets { margin: -2px 0 6px; }
+
+.drawn { display: flex; flex-direction: column; align-items: center; gap: 6px; margin: 10px 0; }
+.drawn .note { color: var(--muted); font-size: 13px; font-weight: 700; }
+.winner { display: flex; justify-content: center; margin: 10px 0 16px; }
+
 .offline-bar {
   position: fixed; left: 0; right: 0; bottom: 0;
   background: var(--danger); color: #fff;
