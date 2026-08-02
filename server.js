@@ -157,7 +157,11 @@ io.on("connection", (socket) => {
     }
     if (lobby.game) return;
 
-    lobby.game = initGame(lobby.players.map((p) => ({ id: p.id, name: p.name })));
+    lobby.game = initGame(
+      lobby.players.map((p) => ({ id: p.id, name: p.name })),
+      undefined,
+      lobby.players.find((p) => p.isHost)?.id ?? lobby.players[0].id
+    );
     lobby.lastActivity = Date.now();
     io.to(lobby.code).emit("lobby", lobbyView(lobby));
     io.to(lobby.code).emit("game", lobby.game);
