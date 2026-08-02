@@ -39,7 +39,8 @@ export const ROUND_TITLES = [
 
 const PYRAMID_ROWS = [5, 4, 3, 2, 1];
 const PYRAMID_CARDS = PYRAMID_ROWS.reduce((a, b) => a + b, 0); // 15
-const FACE = new Set(["J", "Q", "K"]);
+// In der Pyramide zaehlt das Ass mit zu den Bildkarten - es setzt genauso zurueck.
+const FACE = new Set(["J", "Q", "K", "A"]);
 
 export const isFaceCard = (card) => FACE.has(card.rank);
 export const MIN_PLAYERS = 2;
@@ -58,7 +59,14 @@ export function initGame(players, rng, hostId = null) {
   if (players.length < MIN_PLAYERS) throw new Error("Mindestens 2 Spieler.");
   return {
     game: "bus",
-    players: players.map((p) => ({ id: p.id, name: p.name, sips: 0, cards: [], connected: true })),
+    players: players.map((p) => ({
+      id: p.id,
+      name: p.name,
+      avatar: p.avatar ?? null,
+      sips: 0,
+      cards: [],
+      connected: true,
+    })),
     hostId,
     deck: createShuffledDeck(rng),
     phase: "guess",

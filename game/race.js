@@ -51,7 +51,13 @@ export function initRace(players, rng, hostId = null) {
 
   return {
     game: "race",
-    players: players.map((p) => ({ id: p.id, name: p.name, sips: 0, connected: true })),
+    players: players.map((p) => ({
+      id: p.id,
+      name: p.name,
+      avatar: p.avatar ?? null,
+      sips: 0,
+      connected: true,
+    })),
     hostId,
     phase: "bets",
     bets: {}, // playerId -> { suit, amount }
