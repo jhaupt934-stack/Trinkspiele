@@ -277,6 +277,21 @@ input.code {
 .greet .who .hi { font-size: 13px; color: var(--muted); }
 .greet .who .nm { font-size: 20px; font-weight: 800; }
 
+/* Einblendung, wenn man Schlucke bekommt */
+.toast {
+  position: fixed; left: 12px; right: 12px; top: calc(12px + env(safe-area-inset-top));
+  z-index: 100; margin: 0 auto; max-width: 420px;
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 16px; border-radius: 18px;
+  background: linear-gradient(135deg, var(--pink), var(--purple));
+  color: #fff; font-size: 16px; font-weight: 700;
+  box-shadow: 0 10px 28px rgba(0,0,0,.45);
+  animation: toastIn .28s cubic-bezier(.2,.9,.3,1.3);
+}
+.toast.out { animation: toastOut .45s forwards; }
+@keyframes toastIn  { from { transform: translateY(-90px); opacity: 0 } to { transform: none; opacity: 1 } }
+@keyframes toastOut { to { transform: translateY(-90px); opacity: 0 } }
+
 .offline-bar {
   position: fixed; left: 0; right: 0; bottom: 0;
   background: var(--danger); color: #fff;

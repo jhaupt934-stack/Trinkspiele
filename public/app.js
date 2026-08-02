@@ -16,6 +16,7 @@ import {
   sipTargets,
   distributorId,
   activePlayerId,
+  playerById,
   MIN_PLAYERS,
   MAX_PLAYERS,
 } from "/game/engine.js";
@@ -43,6 +44,7 @@ const S = {
   code: "",
   error: null,
   connected: false,
+  sipSeen: 0, // hoechste bereits gezeigte Schluck-Meldung
 };
 
 // ---------------------------------------------------------------------------
@@ -128,6 +130,28 @@ function seatsHtml(players, activeId) {
       .join("") +
     `</div>`
   );
+}
+
+/** Kurze Einblendung oben, z.B. wenn man Schlucke bekommt. */
+function toast(html) {
+  document.querySelector(".toast")?.remove();
+  const t = document.createElement("div");
+  t.className = "toast";
+  t.innerHTML = html;
+  document.body.appendChild(t);
+  setTimeout(() => t.classList.add("out"), 3600);
+  setTimeout(() => t.remove(), 4100);
+}
+
+/** Hat mir jemand gerade Schlucke gegeben? Dann einmal einblenden. */
+function checkSipToast(g) {
+  const s = g?.lastSip;
+  if (!s || s.seq <= S.sipSeen) return;
+  S.sipSeen = s.seq;
+  if (S.mode !== "online" || s.toId !== S.myId) return;
+  const from = g.players.find((p) => p.id === s.fromId)?.name ?? "Jemand";
+  toast(`${avatar(from)}<span><strong>${esc(from)}</strong> gibt dir
+         <strong>${s.count} Schluck${s.count > 1 ? "e" : ""}</strong> 🍺</span>`);
 }
 
 // ---------------------------------------------------------------------------
@@ -402,6 +426,43 @@ function rowsScreen(g) {
     <div class="actions">${footer}</div>`;
 }
 
+function tiebreakScreen(g) {
+  const me = g.players.find((p) => p.id === meId());
+  const others = g.players.filter((p) => p.id !== meId());
+  const namen = g.candidates.map((id) => playerById(g, id).name);
+  const darf = canAct({ type: g.tieMode === "flip" ? "tiebreakFlip" : "tiebreakDraw" });
+
+  const mitte =
+    g.tieMode === "draw"
+      ? `<span class="note">Jeder zieht eine Karte – die niedrigste fährt</span>
+         <div class="line">${
+           g.drawn
+             ? g.candidates.map((id) => `<div class="slot">${cardHtml(g.drawn[id], "m")}
+                 <span class="val">${esc(playerById(g, id).name)}</span></div>`).join("")
+             : g.candidates.map(() => cardHtml(null, "m", { faceDown: true })).join("")
+         }</div>`
+      : `<span class="note">Wer ablegen kann, ist raus</span>
+         ${cardHtml(g.flipped, "m", { faceDown: !g.flipped })}
+         <span class="note">${g.deck.length} Karten im Stapel</span>`;
+
+  const knopf =
+    g.tieMode === "draw"
+      ? `<button class="wide" data-a="tieDraw">Karten ziehen</button>`
+      : `<button class="wide" data-a="tieFlip">Nächste Karte aufdecken</button>`;
+
+  return `
+    <h2>Stechen ⚔️</h2>
+    <p class="sub">Gleichstand zwischen <strong>${esc(namen.join(", "))}</strong> –
+       wer übrig bleibt, fährt Bus.</p>
+    ${g.message ? `<p class="msg">${esc(g.message)}</p>` : ""}
+    ${seatsHtml(others, null)}
+    <div class="felt">${mitte}</div>
+    ${meBlock(me, null)}
+    <div class="actions">${
+      darf ? knopf : `<p class="banner">${esc(hostName(g))} deckt auf.</p>`
+    }</div>`;
+}
+
 function pyramidScreen(g) {
   const me = g.players.find((p) => p.id === meId());
   const others = g.players.filter((p) => p.id !== meId());
@@ -435,11 +496,14 @@ function pyramidScreen(g) {
 
   let footer;
   if (g.finished) {
-    footer = `<p class="success">🎉 Oben angekommen! ${esc(driver.name)} ist raus.</p>
-              <button class="wide" data-a="finish">Ergebnis anzeigen</button>`;
+    footer = g.outOfCards
+      ? `<p class="success" style="color:var(--gold)">Das Deck ist leer – ${esc(driver.name)} hat's nicht geschafft.</p>
+         <button class="wide" data-a="finish">Ergebnis anzeigen</button>`
+      : `<p class="success">🎉 Oben angekommen! ${esc(driver.name)} ist raus.</p>
+         <button class="wide" data-a="finish">Ergebnis anzeigen</button>`;
   } else if (g.failedAt) {
     footer = iDrive
-      ? `<button class="accent wide" data-a="restart">Neue Pyramide, von unten</button>`
+      ? `<button class="accent wide" data-a="restart">Karten zudecken, nochmal von unten</button>`
       : `<p class="banner">${esc(driver.name)} fängt neu an.</p>`;
   } else {
     footer = iDrive
@@ -453,7 +517,8 @@ function pyramidScreen(g) {
 
   return `
     <h2>Die Pyramide 🚌</h2>
-    <p class="sub">${esc(driver.name)} fährt Bus – Reihe ${Math.min(level + 1, 5)} von 5, Versuch ${g.attempts}</p>
+    <p class="sub">${esc(driver.name)} fährt Bus – Reihe ${Math.min(level + 1, 5)} von 5,
+       Versuch ${g.attempts}, noch ${g.deck.length} Karten im Stapel</p>
     ${g.message ? `<p class="msg">${esc(g.message)}</p>` : ""}
     ${seatsHtml(others, driver.id)}
     <div class="felt">${pyramid}</div>
@@ -508,6 +573,7 @@ function render() {
     const g = S.game;
     if (g.phase === "guess") html = guessScreen(g);
     else if (g.phase === "rows") html = rowsScreen(g);
+    else if (g.phase === "tiebreak") html = tiebreakScreen(g);
     else if (g.phase === "pyramid") html = pyramidScreen(g);
     else html = resultScreen(g);
   } else {
@@ -550,6 +616,7 @@ function connect() {
     S.game = game;
     S.screen = "game";
     render();
+    checkSipToast(game);
   });
   socket.on("errorMsg", (msg) => {
     S.error = msg;
@@ -671,6 +738,10 @@ el.addEventListener("click", (e) => {
       return dispatch({ type: "discard", playerId: t.dataset.id });
     case "next":
       return dispatch({ type: "nextRow" });
+    case "tieFlip":
+      return dispatch({ type: "tiebreakFlip" });
+    case "tieDraw":
+      return dispatch({ type: "tiebreakDraw" });
     case "pyr":
       return dispatch({ type: "pickPyramid", index: Number(t.dataset.i) });
     case "restart":
