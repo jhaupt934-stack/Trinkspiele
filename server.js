@@ -15,7 +15,12 @@ import { fileURLToPath } from "node:url";
 import { Server } from "socket.io";
 
 import { initGame, MIN_PLAYERS, MAX_PLAYERS } from "./game/engine.js";
+import { initRace } from "./game/race.js";
 import { handleAction } from "./game/actions.js";
+
+/** Welche Spiele es gibt. Ein neues Spiel braucht hier nur eine Zeile mehr. */
+const SPIELE = { bus: initGame, race: initRace };
+const istSpiel = (s) => Object.prototype.hasOwnProperty.call(SPIELE, s);
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT ?? 8080);
@@ -84,7 +89,12 @@ function makeCode() {
   return code;
 }
 
-const lobbyView = (l) => ({ code: l.code, players: l.players, started: l.game !== null });
+const lobbyView = (l) => ({
+  code: l.code,
+  players: l.players,
+  started: l.game !== null,
+  spiel: l.spiel,
+});
 
 function findBySocket(socketId) {
   for (const lobby of lobbies.values()) {
@@ -98,7 +108,7 @@ function findBySocket(socketId) {
 const io = new Server(server, { cors: { origin: "*" } });
 
 io.on("connection", (socket) => {
-  socket.on("createLobby", ({ name } = {}, ack) => {
+  socket.on("createLobby", ({ name, spiel } = {}, ack) => {
     const code = makeCode();
     const playerId = "p-" + Math.random().toString(36).slice(2, 10);
     const lobby = {
@@ -106,6 +116,7 @@ io.on("connection", (socket) => {
       players: [{ id: playerId, name: (name ?? "").trim() || "Spieler", isHost: true, connected: true }],
       sockets: new Map([[playerId, socket.id]]),
       game: null,
+      spiel: istSpiel(spiel) ? spiel : "bus",
       lastActivity: Date.now(),
     };
     lobbies.set(code, lobby);
@@ -148,7 +159,8 @@ io.on("connection", (socket) => {
 
   /** Eine neue Runde in derselben Lobby beginnen. */
   function neueRunde(lobby) {
-    lobby.game = initGame(
+    const start = SPIELE[lobby.spiel] ?? initGame;
+    lobby.game = start(
       lobby.players.map((p) => ({ id: p.id, name: p.name })),
       undefined,
       lobby.players.find((p) => p.isHost)?.id ?? lobby.players[0].id
@@ -158,7 +170,19 @@ io.on("connection", (socket) => {
     io.to(lobby.code).emit("game", lobby.game);
   }
 
-  socket.on("startGame", () => {
+  // Der Host stellt um, welches Spiel als naechstes laeuft.
+  socket.on("setGame", ({ spiel } = {}) => {
+    const found = findBySocket(socket.id);
+    if (!found) return;
+    const { lobby, playerId } = found;
+    if (!lobby.players.find((p) => p.id === playerId)?.isHost) return;
+    if (lobby.game || !istSpiel(spiel)) return;
+    lobby.spiel = spiel;
+    lobby.lastActivity = Date.now();
+    io.to(lobby.code).emit("lobby", lobbyView(lobby));
+  });
+
+  socket.on("startGame", ({ spiel } = {}) => {
     const found = findBySocket(socket.id);
     if (!found) return;
     const { lobby, playerId } = found;
@@ -168,13 +192,14 @@ io.on("connection", (socket) => {
       return socket.emit("errorMsg", `Ihr braucht mindestens ${MIN_PLAYERS} Spieler.`);
     }
     if (lobby.game) return;
+    if (istSpiel(spiel)) lobby.spiel = spiel;
     neueRunde(lobby);
   });
 
   // Nach dem Ergebnis: Die Lobby bleibt mit allen Spielern bestehen. Entweder
   // geht es sofort in die naechste Runde oder alle landen wieder im Warteraum,
   // von wo aus spaeter auch ein anderes Spiel gestartet werden kann.
-  socket.on("playAgain", ({ restart } = {}) => {
+  socket.on("playAgain", ({ restart, spiel } = {}) => {
     const found = findBySocket(socket.id);
     if (!found) return;
     const { lobby, playerId } = found;
@@ -189,6 +214,7 @@ io.on("connection", (socket) => {
       return;
     }
     if (!lobby.players.some((p) => p.isHost)) lobby.players[0].isHost = true;
+    if (istSpiel(spiel)) lobby.spiel = spiel;
     lobby.lastActivity = Date.now();
 
     if (restart && lobby.players.length >= MIN_PLAYERS) return neueRunde(lobby);
