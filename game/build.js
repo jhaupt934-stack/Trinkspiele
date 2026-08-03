@@ -28,6 +28,14 @@ import { emptySips } from "./sips.js";
 export const REIHEN = 5; // so viele Reihen liegen aus
 export const TREFFER = 5; // so viele richtige Karten hintereinander
 export const DURCHGAENGE = 2; // so oft muss das jeder schaffen
+
+/**
+ * Hoechstlaenge einer Reihe. Wer nie danebentippt, baut pro Zug fuenf Karten
+ * an; bei acht Spielern waeren das 80 Karten - mehr als ein Deck hat, und auf
+ * dem Handy laengst nicht mehr zu sehen. Erreicht eine Reihe diese Laenge,
+ * wird sie abgeraeumt und faengt mit einer frischen Karte wieder an.
+ */
+export const MAX_REIHE = 7;
 export const MIN_PLAYERS = 2;
 export const MAX_PLAYERS = 8;
 
@@ -64,7 +72,7 @@ export function initBuild(players, rng, hostId = null) {
     deck: deck.slice(REIHEN),
     streak: 0, // wie viele richtig hintereinander
     pick: null, // { row, side } - Platz ausgesucht, Tipp fehlt noch
-    letzte: null, // { card, gegen, row, side, tipp, ok, sips, weg } fuer die Anzeige
+    letzte: null, // { card, gegen, row, side, tipp, ok, sips, weg, voll } fuer die Anzeige
     wartet: false, // nach einem Fehler: Karte anschauen, dann weiter
     geschafft: {}, // playerId -> wie oft die fuenf schon standen
     ...emptySips(),
@@ -124,7 +132,11 @@ export function stimmt(tipp, neu, referenz) {
 function refill(rows, deck) {
   if (deck.length > 0) return deck;
   const liegt = new Set(rows.flat().map((c) => c.id));
-  return shuffle(createDeck().filter((c) => !liegt.has(c.id)));
+  const frisch = shuffle(createDeck().filter((c) => !liegt.has(c.id)));
+  // Notnagel: Liegt wirklich das ganze Deck auf dem Tisch, kommt hier nichts
+  // mehr heraus. Dank MAX_REIHE kann das nicht passieren - aber lieber ein
+  // gemischtes Deck zu viel als eine Karte, die es nicht gibt.
+  return frisch.length ? frisch : shuffle(createDeck());
 }
 
 /**
@@ -202,17 +214,29 @@ export function guessBuild(g, playerId, tipp) {
   };
 
   if (richtig) {
-    const rows = g.rows.map((r, i) =>
+    let rows = g.rows.map((r, i) =>
       i !== row ? r : side === "left" ? [karte, ...r] : [...r, karte]
     );
+    let deck = rest;
+    let voll = "";
+
+    // Volle Reihe: abraeumen und mit einer frischen Karte neu anfangen. Der
+    // Zaehler des Spielers bleibt stehen - er hat ja richtig getippt.
+    if (rows[row].length >= MAX_REIHE) {
+      const nach = refill(rows, deck);
+      rows = rows.map((r, i) => (i === row ? [nach[0]] : r));
+      deck = nach.slice(1);
+      voll = ` Reihe ${row + 1} ist voll und wird abgeräumt.`;
+    }
+
     const streak = g.streak + 1;
-    const basis = { ...g, rows, deck: rest, pick: null, letzte };
+    const basis = { ...g, rows, deck, pick: null, letzte: { ...letzte, voll: !!voll } };
 
     if (streak < TREFFER) {
       return {
         ...basis,
         streak,
-        message: `Richtig – ${streak} von ${TREFFER}.`,
+        message: `Richtig – ${streak} von ${TREFFER}.${voll}`,
       };
     }
     return naechsterSpieler({ ...basis, streak: 0 });
@@ -258,30 +282,64 @@ function naechsterSpieler(g) {
   const wer = currentPlayer(g);
   const geschafft = { ...(g.geschafft ?? {}), [wer.id]: durchgaenge(g, wer.id) + 1 };
   const stand = { ...g, geschafft };
+  const naechster = naechsterPlatz(stand);
 
-  const anzahl = g.players.length;
-  let naechster = -1;
-  for (let i = 1; i <= anzahl; i++) {
-    const platz = (g.turn + i) % anzahl;
-    if (!istFertig(stand, g.players[platz].id)) {
-      naechster = platz;
-      break;
-    }
-  }
-
-  if (naechster === -1) {
-    return { ...stand, phase: "finished", message: "Alle haben es zweimal geschafft." };
-  }
+  if (naechster === -1) return { ...stand, phase: "finished", message: fertigText(stand) };
 
   const jetzt = g.players[naechster];
   const rest = DURCHGAENGE - durchgaenge(stand, wer.id);
   return {
     ...stand,
     turn: naechster,
+    streak: 0,
+    pick: null,
     message:
       `${wer.name} hat's geschafft` +
       (rest > 0 ? ` – noch ${rest} Mal` : " – fertig") +
       `. Jetzt ${jetzt.name}.`,
+  };
+}
+
+/**
+ * Wer kommt als naechstes dran? Reihum ab dem naechsten Platz. Uebersprungen
+ * wird, wer schon durch ist - und wer gerade nicht verbunden ist, denn sonst
+ * wartet die Runde ewig auf ein Handy, das niemand mehr anfasst.
+ */
+function naechsterPlatz(g) {
+  const anzahl = g.players.length;
+  for (let i = 1; i <= anzahl; i++) {
+    const platz = (g.turn + i) % anzahl;
+    const p = g.players[platz];
+    if (!istFertig(g, p.id) && p.connected !== false) return platz;
+  }
+  return -1;
+}
+
+const fertigText = (g) =>
+  g.players.some((p) => p.connected === false && !istFertig(g, p.id))
+    ? "Alle, die noch da sind, haben es geschafft."
+    : `Alle haben es ${DURCHGAENGE} Mal geschafft.`;
+
+/** Auf wen wartet die Runde? Immer genau einer. */
+export const wartetAufBuild = (g) =>
+  g.phase === "play" ? [currentPlayer(g)?.id].filter(Boolean) : [];
+
+/**
+ * Wer dran ist und weg ist, wird uebersprungen. Sein Zaehler bleibt stehen -
+ * kommt er zurueck, macht er da weiter, wo er aufgehoert hat.
+ */
+export function ueberspringenBuild(g, playerId) {
+  if (g.phase !== "play" || currentPlayer(g)?.id !== playerId) return g;
+  const wer = currentPlayer(g);
+  const naechster = naechsterPlatz(g);
+  if (naechster === -1) return { ...g, phase: "finished", message: fertigText(g) };
+  return {
+    ...g,
+    turn: naechster,
+    streak: 0,
+    pick: null,
+    wartet: false,
+    message: `${wer.name} war zu lange weg. Jetzt ${g.players[naechster].name}.`,
   };
 }
 

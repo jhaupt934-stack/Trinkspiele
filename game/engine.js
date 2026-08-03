@@ -206,6 +206,44 @@ function nextTurn(g, message) {
   return { ...g, phase: "guess", round, turn, pending: {}, message };
 }
 
+/**
+ * Jemand ist weg und blockiert die Runde. Was hier passiert, haengt davon ab,
+ * worauf gewartet wird - siehe wartetAufBus().
+ */
+export function ueberspringenBus(g, playerId) {
+  const wer = g.players.find((p) => p.id === playerId);
+  if (!wer) return g;
+  const name = wer.name;
+
+  // Offene Schluecke eines Abwesenden verfallen, sonst geht es nie weiter.
+  if (pendingFor(g, playerId) > 0) {
+    const pending = { ...g.pending };
+    delete pending[playerId];
+    const next = { ...g, pending, message: `${name} war zu lange weg – die Schlücke verfallen.` };
+    if (g.phase === "guess" && pendingTotal(next) === 0) {
+      return nextTurn({ ...next, undoStack: {} }, next.message);
+    }
+    return next;
+  }
+
+  if (g.phase === "guess" && g.players[g.turn]?.id === playerId) {
+    return nextTurn(g, `${name} war zu lange weg und wird übersprungen.`);
+  }
+  if (g.phase === "pyramid" && g.driverId === playerId) {
+    return { ...g, phase: "finished", message: `${name} ist weg – die Runde wird beendet.` };
+  }
+  return g;
+}
+
+/** Auf wen wartet die Runde gerade? Kann auch mehr als einer sein. */
+export function wartetAufBus(g) {
+  if (pendingTotal(g) > 0) return distributorIds(g);
+  if (g.phase === "guess") return [g.players[g.turn]?.id].filter(Boolean);
+  if (g.phase === "rows" || g.phase === "tiebreak") return [g.hostId].filter(Boolean);
+  if (g.phase === "pyramid" && !g.finished) return [g.driverId].filter(Boolean);
+  return [];
+}
+
 // ---------------------------------------------------------------------------
 // Phase 2 – Die zwei Reihen
 // ---------------------------------------------------------------------------

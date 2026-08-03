@@ -29,7 +29,7 @@
 // Reines JavaScript ohne Nebenwirkungen, laeuft im Browser wie im Server.
 
 import { SUITS, createDeck, shuffle, suitName } from "./deck.js";
-import { addPending, emptySips, giveSip, pendingTotal } from "./sips.js";
+import { addPending, distributorIds, emptySips, giveSip, pendingFor, pendingTotal } from "./sips.js";
 
 export const ZIEL = 6; // Feld 6 = hinter der letzten Streckenkarte
 export const STRECKENKARTEN = 5;
@@ -87,7 +87,12 @@ export function betsOn(g, suit) {
   return g.players.filter((p) => g.bets[p.id]?.suit === suit);
 }
 
-export const allBetsIn = (g) => g.players.every((p) => g.bets[p.id]);
+/**
+ * Alle da? Wer gerade nicht verbunden ist, haelt das Rennen nicht auf - sonst
+ * wartet die ganze Runde auf ein Handy, das im Flugmodus liegt.
+ */
+export const allBetsIn = (g) =>
+  g.players.filter((p) => p.connected !== false).every((p) => g.bets[p.id]);
 
 /**
  * Setzen heisst gleichzeitig trinken: Der Einsatz wandert sofort auf das
@@ -239,6 +244,36 @@ function endRace(g) {
 
   const liste = gewinner.map((p) => `${p.name} (${g.bets[p.id].amount * 2})`).join(", ");
   return { ...next, message: `${name} gewinnt! Zu verteilen: ${liste}.` };
+}
+
+/** Auf wen wartet das Rennen gerade? */
+export function wartetAufRace(g) {
+  if (g.phase === "bets") return g.players.filter((p) => !g.bets[p.id]).map((p) => p.id);
+  if (g.phase === "race") return [g.hostId].filter(Boolean);
+  if (g.phase === "payout") return distributorIds(g);
+  return [];
+}
+
+/**
+ * Jemand ist weg. Beim Setzen zaehlt er einfach nicht mit, bei der Auszahlung
+ * verfallen seine Schluecke - sonst kommt das Rennen nie zum Ende.
+ */
+export function ueberspringenRace(g, playerId) {
+  const wer = playerById(g, playerId);
+  if (!wer) return g;
+
+  // Beim Setzen ist nichts zu tun: allBetsIn zaehlt Abwesende schon nicht mit,
+  // das Rennen kann also auch ohne sie starten.
+  if (g.phase === "bets") return g;
+  if (g.phase === "payout" && pendingFor(g, playerId) > 0) {
+    const pending = { ...g.pending };
+    delete pending[playerId];
+    const next = { ...g, pending, message: `${wer.name} war zu lange weg – die Schlücke verfallen.` };
+    return pendingTotal(next) === 0
+      ? { ...next, phase: "finished", undoStack: {} }
+      : next;
+  }
+  return g;
 }
 
 export function handOutSipRace(g, targetId, fromId) {

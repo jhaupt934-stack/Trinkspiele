@@ -8,6 +8,8 @@
 
 import {
   allBetsIn,
+  ueberspringenRace,
+  wartetAufRace,
   flipRace,
   handOutSipRace,
   placeBet,
@@ -20,6 +22,8 @@ import {
   erlaubteReihen,
   guessBuild,
   pickSpot,
+  ueberspringenBuild,
+  wartetAufBuild,
   weiterBuild,
   TIPPS,
 } from "./build.js";
@@ -39,6 +43,8 @@ import {
   tiebreakDraw,
   tiebreakFlip,
   tiebreakGo,
+  ueberspringenBus,
+  wartetAufBus,
 } from "./engine.js";
 
 /**
@@ -233,6 +239,38 @@ export function mayAct(g, playerId, action) {
     default:
       return false;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Wenn jemand weg ist
+// ---------------------------------------------------------------------------
+
+/**
+ * Auf wen wartet die Runde gerade? Solange diese Leute nichts tun, geht es
+ * nicht weiter. Der Server schaut damit nach, ob er jemanden ueberspringen
+ * muss, der die App zugemacht hat.
+ */
+export function wartetAuf(g) {
+  if (!g || g.phase === "finished") return [];
+  if (g.game === "race") return wartetAufRace(g);
+  if (g.game === "build") return wartetAufBuild(g);
+  return wartetAufBus(g);
+}
+
+/**
+ * Diesen Spieler ueberspringen, weil er zu lange weg ist. Was das genau
+ * bedeutet, entscheidet das jeweilige Spiel - meistens: sein Zug faellt aus,
+ * offene Schluecke verfallen.
+ */
+export function ueberspringen(g, playerId) {
+  if (!g || g.phase === "finished") return g;
+  const next =
+    g.game === "race"
+      ? ueberspringenRace(g, playerId)
+      : g.game === "build"
+        ? ueberspringenBuild(g, playerId)
+        : ueberspringenBus(g, playerId);
+  return next === g ? g : { ...next, rev: (g.rev ?? 0) + 1 };
 }
 
 /** Ein Zug vom Client: pruefen, anwenden, Ergebnis zurueckgeben. */
