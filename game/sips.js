@@ -68,48 +68,68 @@ export function giveSip(g, targetId, fromId) {
   if (offen - 1 > 0) pending[fromId] = offen - 1;
   else delete pending[fromId];
 
-  // Fuer "Rueckgaengig": nur der letzte Schluck laesst sich zuruecknehmen.
-  const next = { ...g, players, pending, draft: noteSip(g, fromId, targetId), undo: { fromId, toId: targetId } };
+  // Fuer "Rueckgaengig" wird jeder vergebene Schluck der Reihe nach gemerkt.
+  // Dadurch kann man sich Schritt fuer Schritt zurueckarbeiten und nicht nur
+  // den allerletzten zuruecknehmen.
+  const stapel = { ...(g.undoStack ?? {}), [fromId]: [...(g.undoStack?.[fromId] ?? []), targetId] };
+
+  const next = { ...g, players, pending, draft: noteSip(g, fromId, targetId), undoStack: stapel };
   return offen - 1 === 0 ? { ...next, ...flushSips(next, fromId) } : next;
 }
 
-/**
- * Den letzten Schluck zuruecknehmen - fuer den Fall, dass man danebengetippt
- * hat. Gilt nur fuer den unmittelbar letzten und nur, solange die Runde nicht
- * weitergelaufen ist (jede andere Aktion loescht das Rueckgaengig).
- */
-export function canUndo(g, playerId) {
-  return !!g.undo && g.undo.fromId === playerId;
+/** Hat dieser Spieler noch etwas zurueckzunehmen? */
+export const canUndo = (g, playerId) => (g.undoStack?.[playerId]?.length ?? 0) > 0;
+
+/** An wen ging der Schluck, der als naechstes zurueckgenommen wird? */
+export function undoTarget(g, playerId) {
+  const stapel = g.undoStack?.[playerId] ?? [];
+  return stapel.length ? stapel[stapel.length - 1] : null;
 }
 
+/**
+ * Den zuletzt vergebenen Schluck zuruecknehmen. Mehrfach hintereinander
+ * moeglich, bis die ganze Verteilung wieder offen ist. Sobald die Runde
+ * weiterlaeuft (aufdecken, weiterblaettern, naechster Spieler), ist Schluss.
+ */
 export function undoSip(g, playerId) {
   if (!canUndo(g, playerId)) return g;
-  const { fromId, toId } = g.undo;
+  const fromId = playerId;
+  const stapel = g.undoStack[fromId];
+  const toId = stapel[stapel.length - 1];
 
   const players = g.players.map((p) => (p.id === toId ? { ...p, sips: Math.max(0, p.sips - 1) } : p));
   const pending = { ...g.pending, [fromId]: pendingFor(g, fromId) + 1 };
 
-  // Zwischenstand zurueckdrehen
-  const draft = { ...(g.draft ?? {}) };
+  let draft = { ...(g.draft ?? {}) };
+  let sipLog = g.sipLog ?? [];
+  const run = (g.runs ?? {})[fromId] ?? 0;
+
+  // War die Verteilung schon abgeschlossen, sind die Meldungen bereits raus.
+  // Die holen wir zurueck in den Zwischenstand - dann geht am Ende wieder
+  // genau eine Meldung pro Empfaenger raus, mit der korrigierten Anzahl.
+  if (!draft[fromId]) {
+    const meine = sipLog.filter((e) => e.run === run && e.fromId === fromId);
+    if (meine.length) {
+      draft[fromId] = Object.fromEntries(meine.map((e) => [e.toId, e.count]));
+      sipLog = sipLog.filter((e) => !(e.run === run && e.fromId === fromId));
+    }
+  }
+
   const meins = { ...(draft[fromId] ?? {}) };
   if (meins[toId] > 1) meins[toId] -= 1;
   else delete meins[toId];
   if (Object.keys(meins).length) draft[fromId] = meins;
   else delete draft[fromId];
 
-  // War die Meldung schon raus, wird sie mitkorrigiert. Die Nummer bleibt
-  // gleich, damit beim Empfaenger nicht nochmal etwas aufpoppt.
-  const run = (g.runs ?? {})[fromId] ?? 0;
-  const sipLog = (g.sipLog ?? [])
-    .map((e) =>
-      e.run === run && e.fromId === fromId && e.toId === toId ? { ...e, count: e.count - 1 } : e
-    )
-    .filter((e) => e.count > 0);
+  const rest = stapel.slice(0, -1);
+  const undoStack = { ...g.undoStack };
+  if (rest.length) undoStack[fromId] = rest;
+  else delete undoStack[fromId];
 
-  return { ...g, players, pending, draft, sipLog, undo: null };
+  return { ...g, players, pending, draft, sipLog, undoStack };
 }
 
 /** Leerer Ausgangszustand fuer die Schluck-Verwaltung. */
 export const emptySips = () => ({
-  pending: {}, runs: {}, dist: 0, draft: {}, sipLog: [], sipSeq: 0, undo: null,
+  pending: {}, runs: {}, dist: 0, draft: {}, sipLog: [], sipSeq: 0, undoStack: {},
 });

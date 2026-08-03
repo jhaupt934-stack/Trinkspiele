@@ -20,6 +20,7 @@ import { createDeck, createShuffledDeck, draw, isRed, rankValue, shuffle } from 
 import {
   addPending,
   canUndo,
+  undoTarget,
   distributorIds,
   emptySips,
   giveSip,
@@ -30,7 +31,7 @@ import {
 } from "./sips.js";
 
 // Damit die Oberflaeche alles aus einer Datei holen kann.
-export { canUndo, distributorIds, pendingFor, pendingTotal, sipTargets, undoSip };
+export { canUndo, undoTarget, distributorIds, pendingFor, pendingTotal, sipTargets, undoSip };
 
 export const ROUND_TITLES = [
   "Runde 1 – Rot oder Schwarz?",
@@ -126,7 +127,7 @@ export function handOutSip(g, targetId, fromId) {
   if (next === g) return g;
 
   // Ueber den Zugwechsel hinweg laesst sich nichts mehr zurueckholen.
-  if (g.phase === "guess" && pendingTotal(next) === 0) return nextTurn({ ...next, undo: null }, null);
+  if (g.phase === "guess" && pendingTotal(next) === 0) return nextTurn({ ...next, undoStack: {} }, null);
   return next;
 }
 
@@ -268,6 +269,17 @@ export function playersWithMatch(g) {
  * zwar auch dann, wenn ein anderer gerade noch am Verteilen ist - jeder bekommt
  * seinen eigenen Verteil-Auftrag und arbeitet ihn unabhaengig ab.
  */
+/** Wie viele Karten mit dem aufgedeckten Wert hat dieser Spieler? */
+export function matchCount(g, playerId) {
+  const cur = currentRowCard(g);
+  if (!cur || !g.revealedNow) return 0;
+  return playerById(g, playerId)?.cards.filter((c) => c.rank === cur.card.card.rank).length ?? 0;
+}
+
+/**
+ * Ablegen. Hat jemand den Wert zweimal, gehen beide Karten mit EINEM Tipp weg
+ * und die Schluecke zaehlen doppelt - man soll nicht zweimal tippen muessen.
+ */
 export function discardCard(g, playerId) {
   if (g.phase !== "rows" || !g.revealedNow) return g;
   const cur = currentRowCard(g);
@@ -275,29 +287,31 @@ export function discardCard(g, playerId) {
 
   const player = playerById(g, playerId);
   if (!player) return g;
-  const idx = player.cards.findIndex((c) => c.rank === cur.card.card.rank);
-  if (idx < 0) return g;
+  const rank = cur.card.card.rank;
+  const anzahl = player.cards.filter((c) => c.rank === rank).length;
+  if (anzahl === 0) return g;
 
-  const value = cur.card.value;
-  const plural = value > 1 ? "e" : "";
+  const gesamt = cur.card.value * anzahl;
+  const plural = gesamt > 1 ? "e" : "";
+  const wieViele = anzahl > 1 ? `${anzahl} Karten` : "ab";
   const players = g.players.map((p) =>
     p.id !== playerId
       ? p
       : {
           ...p,
-          cards: p.cards.filter((_, i) => i !== idx),
-          sips: cur.kind === "drink" ? p.sips + value : p.sips,
+          cards: p.cards.filter((c) => c.rank !== rank),
+          sips: cur.kind === "drink" ? p.sips + gesamt : p.sips,
         }
   );
 
   if (cur.kind === "drink") {
-    return { ...g, players, message: `${player.name} legt ab und trinkt ${value} Schluck${plural}.` };
+    return { ...g, players, message: `${player.name} legt ${wieViele} ab und trinkt ${gesamt} Schluck${plural}.` };
   }
   return {
     ...g,
     players,
-    ...addPending(g, playerId, value),
-    message: `${player.name} legt ab und verteilt ${value} Schluck${plural}.`,
+    ...addPending(g, playerId, gesamt),
+    message: `${player.name} legt ${wieViele} ab und verteilt ${gesamt} Schluck${plural}.`,
   };
 }
 

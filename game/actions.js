@@ -39,10 +39,12 @@ import {
  * Lokal steht der Verteiler im Feld `fromId` der Aktion.
  */
 export function applyAction(g, action, actorId = null) {
-  // Rueckgaengig gilt nur fuer den unmittelbar letzten Schluck. Sobald sonst
-  // irgendetwas passiert, ist es verfallen.
-  if (g.undo && action.type !== "handOutSip" && action.type !== "undoSip") {
-    g = { ...g, undo: null };
+  // Rueckgaengig gilt nur innerhalb der laufenden Verteilung. Sobald die
+  // Runde weitergeht - aufdecken, weiterblaettern, naechster Spieler - ist
+  // Schluss. Ablegen zaehlt nicht dazu, da wird ja nur nachgelegt.
+  const behaelt = ["handOutSip", "undoSip", "discard"];
+  if (g.undoStack && Object.keys(g.undoStack).length && !behaelt.includes(action.type)) {
+    g = { ...g, undoStack: {} };
   }
   if (g.game === "race") return applyRace(g, action, actorId);
 
