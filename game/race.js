@@ -13,6 +13,10 @@
 //   2. "race"  - es wird eine Karte umgedreht; das Ass mit demselben Symbol
 //                rueckt ein Feld vor. Wer Feld 6 erreicht - also hinter der
 //                letzten Streckenkarte - hat gewonnen.
+//                Kommt ein Pferd ins Ziel, auf das NIEMAND gesetzt hat, ist
+//                das Rennen nicht vorbei: Dieses Pferd ist durch und laeuft
+//                nicht mehr mit, die anderen rennen weiter. Erst das erste
+//                Pferd mit einer Wette beendet das Rennen.
 //                Sobald ALLE Pferde mindestens auf Hoehe einer Streckenkarte
 //                stehen, wird diese aufgedeckt und das Pferd mit ihrem Symbol
 //                muss ein Feld zurueck. Bei den Staenden 1/0/2/3 passiert also
@@ -67,6 +71,7 @@ export function initRace(players, rng, hostId = null) {
     nextSide: 1, // naechste Streckenkarte (1..5), 6 = alle offen
     flipped: null,
     lastMove: null, // { suit, dir: 1 | -1 }
+    durch: [], // im Ziel, aber ohne Wette - laufen nicht mehr mit
     winner: null,
     ...emptySips(),
     message: "Setzt eure Schlücke auf ein Pferd – und trinkt sie gleich.",
@@ -134,19 +139,29 @@ function revealSideCards(g) {
   let horses = { ...g.horses };
   let side = g.side;
   let nextSide = g.nextSide;
+  const durch = g.durch ?? [];
   const meldungen = [];
 
   while (nextSide <= STRECKENKARTEN && Math.min(...Object.values(horses)) >= nextSide) {
     const idx = nextSide - 1;
     const karte = side[idx].card;
     side = side.map((s, i) => (i === idx ? { ...s, revealed: true } : s));
-    horses = { ...horses, [karte.suit]: Math.max(0, horses[karte.suit] - 1) };
-    meldungen.push(`Streckenkarte ${nextSide} ist ${suitName(karte.suit)} – ${suitName(karte.suit)} muss zurück!`);
+
+    // Ein Pferd, das schon durchs Ziel ist, holt keine Streckenkarte zurueck.
+    if (durch.includes(karte.suit)) {
+      meldungen.push(`Streckenkarte ${nextSide} ist ${suitName(karte.suit)} – das ist schon durch.`);
+    } else {
+      horses = { ...horses, [karte.suit]: Math.max(0, horses[karte.suit] - 1) };
+      meldungen.push(`Streckenkarte ${nextSide} ist ${suitName(karte.suit)} – ${suitName(karte.suit)} muss zurück!`);
+    }
     nextSide++;
   }
 
   return { horses, side, nextSide, meldungen };
 }
+
+/** Hat irgendjemand auf dieses Pferd gesetzt? */
+const hatWette = (g, suit) => g.players.some((p) => g.bets[p.id]?.suit === suit);
 
 /** Eine Karte vom Stapel: das passende Pferd rueckt vor. */
 export function flipRace(g) {
@@ -154,11 +169,40 @@ export function flipRace(g) {
 
   const deck = refill(g);
   const karte = deck[0];
-  const horses = { ...g.horses, [karte.suit]: g.horses[karte.suit] + 1 };
-  const base = { ...g, deck: deck.slice(1), flipped: karte, horses, lastMove: { suit: karte.suit, dir: 1 } };
+  const rest = deck.slice(1);
+  const durch = g.durch ?? [];
 
-  // Ziel erreicht - das Rennen ist sofort vorbei.
-  if (horses[karte.suit] >= ZIEL) return endRace({ ...base, winner: karte.suit });
+  // Pferde, die ohne Wette durchs Ziel sind, laufen nicht mehr mit.
+  if (durch.includes(karte.suit)) {
+    return {
+      ...g,
+      deck: rest,
+      flipped: karte,
+      lastMove: null,
+      message: `${suitName(karte.suit)} ist schon durch und läuft nicht mehr mit.`,
+    };
+  }
+
+  const horses = { ...g.horses, [karte.suit]: g.horses[karte.suit] + 1 };
+  const base = { ...g, deck: rest, flipped: karte, horses, lastMove: { suit: karte.suit, dir: 1 } };
+
+  if (horses[karte.suit] >= ZIEL) {
+    // Nur ein Pferd, auf das jemand gesetzt hat, beendet das Rennen.
+    if (hatWette(g, karte.suit)) return endRace({ ...base, winner: karte.suit });
+
+    const weiter = { ...base, durch: [...durch, karte.suit] };
+    const r = revealSideCards(weiter);
+    return {
+      ...weiter,
+      horses: r.horses,
+      side: r.side,
+      nextSide: r.nextSide,
+      message: [
+        `${suitName(karte.suit)} ist im Ziel – aber darauf hatte niemand gesetzt. Es geht weiter!`,
+        ...r.meldungen,
+      ].join(" "),
+    };
+  }
 
   const { horses: h2, side, nextSide, meldungen } = revealSideCards(base);
   return {
