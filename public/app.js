@@ -59,7 +59,7 @@ import { isRed, suitSymbol, suitName } from "/game/deck.js";
 const SPIELE = [
   { id: "bus", emoji: "🚌", name: "Busfahren", kurz: "ca. 15 Min." },
   { id: "race", emoji: "🐎", name: "Pferderennen", kurz: "ca. 5 Min." },
-  { id: "build", emoji: "🛠️", name: "Bus bauen", kurz: "ca. 10 Min." },
+  { id: "build", emoji: "🔼", name: "Drüber Drunter", kurz: "ca. 10 Min." },
 ];
 const spielName = (id) => SPIELE.find((s) => s.id === id)?.name ?? "";
 const spielEmoji = (id) => SPIELE.find((s) => s.id === id)?.emoji ?? "🃏";
@@ -150,8 +150,9 @@ const REGELN = {
   build: `
     <h3>Worum geht's?</h3>
     <p>${REIHEN} Karten liegen offen aus, jede für sich eine Reihe. Du baust
-    daran weiter – und musst <strong>${TREFFER} Mal hintereinander</strong>
-    richtig liegen, dann ist der Nächste dran.</p>
+    daran weiter – drüber oder drunter – und musst
+    <strong>${TREFFER} Mal hintereinander</strong> richtig liegen, dann ist der
+    Nächste dran.</p>
 
     <h3>Dein Zug</h3>
     <p>Such dir eine Reihe aus und eine Seite: <strong>links</strong> oder
@@ -163,20 +164,21 @@ const REGELN = {
     aussuchen. Ab der zweiten Karte darfst du überall anbauen.</p>
 
     <h3>Wenn du falsch liegst</h3>
-    <p>Du trinkst so viele Schlücke, wie die Reihe lang war – die neue Karte
+    <p>Die Karte bleibt erst mal groß stehen, damit du siehst, was gekommen
+    ist. Du trinkst so viele Schlücke, wie die Reihe lang war – die neue Karte
     zählt nicht mit. Sie kommt weg, die längste Reihe wird abgebaut und auf eine
     Karte zurückgesetzt.</p>
     <p>Dein Zähler geht auf null, aber du bleibst dran. Du kommst erst weg, wenn
     du deine ${TREFFER} zusammen hast.</p>
 
     <h3>Am Ende</h3>
-    <p>Wenn jeder einmal gebaut hat, steht der Bus und die Runde ist vorbei.</p>`,
+    <p>Wenn jeder einmal gebaut hat, ist die Runde vorbei.</p>`,
 };
 const regelnHtml = (id) => REGELN[id] ?? "<p>Für dieses Spiel gibt es noch keine Erklärung.</p>";
 
 // Steht unten auf der Startseite. Wenn etwas komisch aussieht, sagt diese
 // Nummer sofort, welche Fassung auf dem Handy wirklich laeuft.
-const VERSION = "v24";
+const VERSION = "v25";
 
 const el = document.getElementById("app");
 
@@ -363,9 +365,42 @@ function checkSipToast(g) {
 // Aktionen
 // ---------------------------------------------------------------------------
 
+/**
+ * Aktionen, bei denen eine Karte vom Stapel gezogen wird. Ist der Stapel
+ * gerade leer, wird neu gemischt - was dabei kommt, kann der Browser nicht
+ * erraten. Dann wird nicht vorausgerechnet, sondern gewartet.
+ */
+const ZIEHT = new Set([
+  "guess",
+  "guessBuild",
+  "flip",
+  "revealRow",
+  "tiebreakFlip",
+  "tiebreakDraw",
+  "pickPyramid",
+  "restartPyramid",
+  "discard",
+]);
+
+/**
+ * Online wird jede Aktion sofort auch im Browser gerechnet und gezeichnet -
+ * sonst passiert beim Tippen erst mal gar nichts, bis der Server geantwortet
+ * hat. Gleich danach kommt sein Stand und ueberschreibt das Ergebnis; er hat
+ * immer recht. Weil beide Seiten denselben Regelcode benutzen, kommt in aller
+ * Regel genau dasselbe heraus.
+ */
 function dispatch(action) {
   if (S.mode === "online") {
     S.socket?.emit("action", action);
+    if (!S.game || !S.myId) return;
+    const leererStapel = (S.game.deck?.length ?? 0) === 0;
+    if (leererStapel && ZIEHT.has(action.type)) return;
+    if (!mayAct(S.game, S.myId, action)) return;
+
+    const voraus = applyAction(S.game, action, S.myId);
+    if (voraus === S.game) return;
+    S.game = voraus;
+    render();
     return;
   }
   S.game = applyAction(S.game, action);
@@ -1258,22 +1293,38 @@ function buildRow(g, i, darfIch) {
   const slot = (seite) => {
     const an = gewaehlt(seite);
     const aktiv = darfIch && erlaubt;
+    const pfeil = seite === "left" ? "◀" : "▶";
     return (
-      `<button class="slot ${an ? "on" : ""}" ${aktiv ? "" : "disabled"} ` +
+      `<button class="slot ${seite} ${an ? "on" : ""}" ${aktiv ? "" : "disabled"} ` +
       `data-a="spot" data-row="${i}" data-side="${seite}" ` +
-      `aria-label="${seiteName(seite)} an Reihe ${i + 1}">${an ? "▾" : "+"}</button>`
+      `aria-label="${seiteName(seite)} an Reihe ${i + 1}">` +
+      `<span class="pl">${an ? "✓" : "+"}</span><span class="ar">${pfeil}</span></button>`
     );
   };
 
-  const neu = g.letzte && g.letzte.ok && g.letzte.row === i ? g.letzte.card.id : null;
+  // Die frisch angelegte Karte kurz hervorheben, und die Karte, gegen die
+  // gerade getippt wird, deutlich einrahmen - sonst raet man ins Blaue.
+  const neu = g.letzte?.ok && g.letzte.row === i ? g.letzte.card.id : null;
+  const ref = g.pick?.row === i ? randKarte(g, i, g.pick.side)?.id : null;
   const cards = karten
-    .map((c) => cardHtml(c, "t", { style: c.id === neu ? "outline:2px solid var(--mint)" : "" }))
+    .map((c) =>
+      cardHtml(c, "s", {
+        style: [
+          c.id === neu ? "box-shadow:0 0 0 3px var(--mint)" : "",
+          c.id === ref ? "box-shadow:0 0 0 3px var(--gold)" : "",
+        ]
+          .filter(Boolean)
+          .join(";"),
+      })
+    )
     .join("");
 
   return (
     `<div class="brow ${erlaubt ? "" : "sperr"} ${g.pick?.row === i ? "sel" : ""}">` +
-    `<span class="nr">${i + 1}</span>${slot("left")}` +
-    `<div class="bcards">${cards}</div>${slot("right")}</div>`
+    slot("left") +
+    `<div class="bcards">${cards}</div>` +
+    slot("right") +
+    `</div>`
   );
 }
 
@@ -1293,47 +1344,83 @@ function sipStrip(g, dranId) {
   );
 }
 
+/**
+ * Die grosse Anzeige nach einem Fehler: links die Karte, gegen die getippt
+ * wurde, rechts die, die gekommen ist. So sieht jeder sofort, warum es
+ * danebenging - vorher war die Karte schon wieder weg, bevor man sie lesen
+ * konnte.
+ */
+function buildFehler(g, ichBinDran) {
+  const l = g.letzte;
+  const pfeil = { higher: "↑", lower: "↓", equal: "=" }[l.tipp] ?? "?";
+  return `
+    <div class="panel bad">
+      <div class="ph"><h3>Daneben – ${l.sips} Schluck${l.sips > 1 ? "e" : ""} 🍺</h3></div>
+      <div class="gegen">
+        ${cardHtml(l.gegen, "m")}
+        <span class="op">${pfeil}<i>${esc(tippName(l.tipp))}?</i></span>
+        ${cardHtml(l.card, "m")}
+      </div>
+      <p class="hint" style="text-align:center;margin:12px 0 0">
+        ${l.weg !== null ? `Reihe ${l.weg + 1} wird abgebaut. ` : ""}Weiter bei null.
+      </p>
+    </div>
+    ${
+      ichBinDran
+        ? `<button class="wide" data-a="weiter">Nochmal probieren</button>`
+        : `<p class="banner">${esc(currentPlayer(g)?.name ?? "")} schaut sich die Karte an.</p>`
+    }`;
+}
+
 function buildScreen(g) {
   const dran = currentPlayer(g);
   const ichBinDran = S.mode === "local" || dran?.id === S.myId;
+  const darfIch = ichBinDran && !g.wartet;
   const nurLaengste = g.streak === 0;
 
-  const punkte = Array.from({ length: TREFFER }, (_, i) =>
-    `<span class="dot ${i < g.streak ? "on" : ""}"></span>`
+  const punkte = Array.from(
+    { length: TREFFER },
+    (_, i) => `<span class="dot ${i < g.streak ? "on" : ""}"></span>`
   ).join("");
 
-  const reihen = g.rows.map((_, i) => buildRow(g, i, ichBinDran)).join("");
+  const reihen = g.rows.map((_, i) => buildRow(g, i, darfIch)).join("");
 
-  // Was steht unten? Erst Platz aussuchen, dann tippen.
+  // Kopfzeile: wer baut, wie weit, und die zuletzt aufgedeckte Karte.
+  const kopf = `
+    <div class="bhead ${ichBinDran ? "me" : ""}">
+      ${cardHtml(g.letzte?.card, "s", { faceDown: !g.letzte })}
+      <span class="txt">
+        <b>${avatar(dran, true)} ${ichBinDran ? "Du bist dran" : `${esc(dran?.name ?? "")} baut`}</b>
+        <span class="streak">${punkte}<i>${g.streak}/${TREFFER}</i></span>
+      </span>
+    </div>`;
+
   let footer;
-  if (!ichBinDran) {
+  if (g.wartet) {
+    footer = buildFehler(g, ichBinDran);
+  } else if (!ichBinDran) {
     footer = `<p class="banner">${esc(dran?.name ?? "")} baut gerade.</p>`;
   } else if (!g.pick) {
     footer = `<p class="banner">${
       nurLaengste
-        ? `Erste Karte: nur an die längste Reihe (${longestLength(g)} Karten).`
-        : "Tipp auf ein + – links oder rechts von einer Reihe."
+        ? `Neuer Anlauf: nur an die längste Reihe (${longestLength(g)} Karten).`
+        : "Tipp auf + links oder rechts neben einer Reihe."
     }</p>`;
   } else {
     const ref = randKarte(g, g.pick.row, g.pick.side);
     footer =
-      `<div class="panel accent"><div class="ph"><h3>${seiteName(g.pick.side)} an Reihe ` +
-      `${g.pick.row + 1} – gegen ${ref.rank}${suitSymbol(ref.suit)}</h3></div>` +
-      `<div class="row">` +
-      `<button data-a="tipp" data-t="lower">↓ tiefer</button>` +
-      `<button data-a="tipp" data-t="equal">= gleich</button>` +
-      `<button data-a="tipp" data-t="higher">↑ höher</button>` +
+      `<div class="panel accent"><div class="ph"><h3>Gegen ` +
+      `<span class="${isRed(ref) ? "rot" : ""}">${ref.rank}${suitSymbol(ref.suit)}</span>` +
+      ` – ${seiteName(g.pick.side)} an Reihe ${g.pick.row + 1}</h3></div>` +
+      `<div class="tipps">` +
+      `<button data-a="tipp" data-t="lower"><b>↓</b>tiefer</button>` +
+      `<button data-a="tipp" data-t="equal"><b>=</b>gleich</button>` +
+      `<button data-a="tipp" data-t="higher"><b>↑</b>höher</button>` +
       `</div></div>`;
   }
 
   return `
-    ${turnBar(
-      dran,
-      ichBinDran ? "Du baust 🛠️" : `${esc(dran?.name ?? "")} baut 🛠️`,
-      ichBinDran,
-      `${g.streak}/${TREFFER}`
-    )}
-    <div class="streak">${punkte}</div>
+    ${kopf}
     ${g.message ? `<p class="msg">${esc(g.message)}</p>` : ""}
     ${sipStrip(g, dran?.id)}
     <div class="felt build">${reihen}</div>
@@ -1468,7 +1555,12 @@ function connect() {
     if (lobby.started && S.screen === "lobby") S.screen = "game";
     render();
   });
-  socket.on("game", (game) => {
+  socket.on("game", (game, von) => {
+    // Eigene Aktionen hat dieser Browser schon selbst gerechnet. Kommt die
+    // Bestätigung für einen älteren Stand, während man schon weitergetippt
+    // hat, wird sie weggeworfen - sonst springt die Anzeige zurück.
+    if (von && von === S.myId && (game.rev ?? 0) < (S.game?.rev ?? 0)) return;
+
     // Frische Runde: der Meldungszähler fängt wieder bei null an.
     if ((game.sipLog ?? []).length === 0) S.sipSeen = 0;
     S.game = game;
@@ -1681,6 +1773,8 @@ el.addEventListener("click", (e) => {
       });
     case "tipp":
       return dispatch({ type: "guessBuild", playerId: meId(), tipp: t.dataset.t });
+    case "weiter":
+      return dispatch({ type: "weiterBuild", playerId: meId() });
     case "undo":
       return dispatch({ type: "undoSip", fromId: t.dataset.from, targetId: t.dataset.id });
     case "sip":
