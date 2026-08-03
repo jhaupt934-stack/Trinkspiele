@@ -44,8 +44,11 @@ import {
   longestLength,
   seiteName,
   tippName,
+  durchgaenge,
+  istFertig,
   REIHEN,
   TREFFER,
+  DURCHGAENGE,
 } from "/game/build.js";
 import { applyAction, mayAct } from "/game/actions.js";
 import { isRed, suitSymbol, suitName } from "/game/deck.js";
@@ -172,13 +175,15 @@ const REGELN = {
     du deine ${TREFFER} zusammen hast.</p>
 
     <h3>Am Ende</h3>
-    <p>Wenn jeder einmal gebaut hat, ist die Runde vorbei.</p>`,
+    <p>Jeder muss seine ${TREFFER} <strong>${DURCHGAENGE} Mal</strong> zusammen
+    bekommen. Danach ist die Runde vorbei. In der Leiste oben steht bei jedem,
+    wie viele Durchgänge er schon hat.</p>`,
 };
 const regelnHtml = (id) => REGELN[id] ?? "<p>Für dieses Spiel gibt es noch keine Erklärung.</p>";
 
 // Steht unten auf der Startseite. Wenn etwas komisch aussieht, sagt diese
 // Nummer sofort, welche Fassung auf dem Handy wirklich laeuft.
-const VERSION = "v25";
+const VERSION = "v27";
 
 const el = document.getElementById("app");
 
@@ -1335,9 +1340,9 @@ function sipStrip(g, dranId) {
     g.players
       .map(
         (p) =>
-          `<span class="sp ${p.id === dranId ? "on" : ""} ${
-            g.fertig?.includes(p.id) ? "done" : ""
-          }">${avatar(p, true)}<span>${esc(p.name)}</span><b>${p.sips}</b></span>`
+          `<span class="sp ${p.id === dranId ? "on" : ""} ${istFertig(g, p.id) ? "done" : ""}">` +
+          `${avatar(p, true)}<span>${esc(p.name)}</span>` +
+          `<i>${durchgaenge(g, p.id)}/${DURCHGAENGE}</i><b>${p.sips}</b></span>`
       )
       .join("") +
     `</div>`
@@ -1391,7 +1396,8 @@ function buildScreen(g) {
       ${cardHtml(g.letzte?.card, "s", { faceDown: !g.letzte })}
       <span class="txt">
         <b>${avatar(dran, true)} ${ichBinDran ? "Du bist dran" : `${esc(dran?.name ?? "")} baut`}</b>
-        <span class="streak">${punkte}<i>${g.streak}/${TREFFER}</i></span>
+        <span class="streak">${punkte}<i>${g.streak}/${TREFFER}</i>
+          <em>Durchgang ${Math.min(durchgaenge(g, dran?.id) + 1, DURCHGAENGE)}/${DURCHGAENGE}</em></span>
       </span>
     </div>`;
 

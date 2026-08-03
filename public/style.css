@@ -694,3 +694,9 @@ button.step {
 .strip .sp.on { border-color: var(--mint); background: var(--surface-2); }
 .strip .sp.done { opacity: .5; }
 .strip .sp b { color: var(--gold); }
+.strip .sp i {
+  font-style: normal; font-size: 11px; font-weight: 800; color: var(--muted);
+  background: var(--surface-2); border-radius: 7px; padding: 1px 5px;
+}
+.strip .sp.done i { color: var(--success); }
+.streak em { font-style: normal; font-size: 12px; font-weight: 800; color: var(--gold); }
