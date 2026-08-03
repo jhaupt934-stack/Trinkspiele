@@ -85,6 +85,7 @@ button.accent {
 }
 button.ghost { background: none; color: var(--muted); font-weight: 600; box-shadow: none; }
 button.small { font-size: 15px; padding: 12px 16px; border-radius: 13px; }
+button.wide.small { margin-top: 10px; }
 button.wide { width: 100%; }
 
 /* Grosse Auswahl-Kacheln, z.B. zum Schlucke verteilen */
@@ -370,16 +371,29 @@ input.code {
 
 /* --- Wer ist dran? --- */
 .turn {
-  display: flex; align-items: center; justify-content: center; gap: 8px;
-  padding: 12px 14px; margin: 0 0 14px; border-radius: 15px;
-  font-size: 17px; font-weight: 800; text-align: center;
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; margin: 0 0 12px; border-radius: 16px;
+  font-size: 17px; font-weight: 800;
   background: var(--surface-2); color: var(--muted);
   border: 1.5px solid var(--border-strong);
+}
+.turn .t { flex: 1; min-width: 0; }
+.turn .x {
+  flex: none; font-size: 13px; font-weight: 800; opacity: .8;
+  background: rgba(0,0,0,.22); border-radius: 9px; padding: 4px 8px;
 }
 .turn.me {
   background: linear-gradient(135deg, var(--mint), #17B79B);
   color: #04261F; border-color: transparent;
   box-shadow: 0 6px 18px rgba(46, 230, 197, .28);
+}
+.turn.me .av { background: rgba(255,255,255,.55); }
+.turn.me .x { background: rgba(0,0,0,.14); }
+
+/* Beilaeufige Zusatzinfo in einer Ueberschrift */
+.leicht {
+  display: block; font-size: 13px; font-weight: 600;
+  color: var(--muted); letter-spacing: 0; margin-top: 2px;
 }
 
 /* --- Spielauswahl --- */
@@ -556,7 +570,7 @@ button.step {
 }
 .racehead.me { border-color: var(--mint); }
 .racehead .txt { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.racehead .txt b { font-size: 17px; font-weight: 800; }
+.racehead .txt b { font-size: 17px; font-weight: 800; display: flex; align-items: center; gap: 7px; }
 .racehead.me .txt b { color: var(--mint); }
 .racehead .txt i {
   font-style: normal; font-size: 13px; color: var(--muted); font-weight: 600; line-height: 1.35;

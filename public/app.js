@@ -19,6 +19,7 @@ import {
   distributorIds,
   activePlayerId,
   playerById,
+  canUndo,
   warteBis,
   MIN_PLAYERS,
   MAX_PLAYERS,
@@ -136,7 +137,7 @@ const regelnHtml = (id) => REGELN[id] ?? "<p>Für dieses Spiel gibt es noch kein
 
 // Steht unten auf der Startseite. Wenn etwas komisch aussieht, sagt diese
 // Nummer sofort, welche Fassung auf dem Handy wirklich laeuft.
-const VERSION = "v19";
+const VERSION = "v20";
 
 const el = document.getElementById("app");
 
@@ -433,9 +434,18 @@ function rulesScreen() {
     </div>`;
 }
 
-/** Die auffällige Zeile ganz oben: wer ist dran? */
-function turnBar(text, ichBinDran) {
-  return `<div class="turn ${ichBinDran ? "me" : ""}">${text}</div>`;
+/**
+ * Die Zeile ganz oben: wer ist dran. Mit Gesicht, damit man es am Tisch
+ * auf einen Blick sieht - grün heißt immer "du".
+ */
+function turnBar(wer, text, ichBinDran, extra = "") {
+  return (
+    `<div class="turn ${ichBinDran ? "me" : ""}">` +
+    (wer ? avatar(wer, true) : "") +
+    `<span class="t">${text}</span>` +
+    (extra ? `<span class="x">${extra}</span>` : "") +
+    `</div>`
+  );
 }
 
 function setupScreen() {
@@ -493,9 +503,8 @@ function lobbyScreen() {
         )
         .join("")}
 
-      <p class="label">Dein Bild – tipp eins an</p>
+      <p class="label">Dein Bild</p>
       ${avatarPicker(S.lobby.players, me?.avatar)}
-      <p class="avhint">Ausgegraute hat schon jemand.</p>
 
       <p class="label">${binHost ? "Spiel wählen" : `Spiel (wählt ${esc(hostNameLobby())})`}</p>
       ${gamePicker(spiel, binHost)}
@@ -546,15 +555,22 @@ function hostName(g) {
 /** Das Verteil-Feld fuer einen bestimmten Spieler. */
 function handOutPanel(g, fromId) {
   const n = pendingFor(g, fromId);
-  if (n === 0) return "";
+  const zurueck = canUndo(g, fromId);
+  if (n === 0 && !zurueck) return "";
   const from = playerById(g, fromId);
-  const wer = S.mode === "local" ? `${esc(from.name)}: noch ` : "Noch ";
+  const wer = S.mode === "local" ? `${esc(from.name)}: ` : "";
+
+  // Zurueck-Knopf fuer den Fall, dass man danebengetippt hat.
+  const undoZeile = zurueck
+    ? `<button class="secondary wide small" data-a="undo" data-from="${fromId}">
+         ↩︎ Zurück: ${esc(playerById(g, g.undo.toId)?.name ?? "")}</button>`
+    : "";
+
+  if (n === 0) return `<div class="panel">${undoZeile}</div>`;
 
   return `
     <div class="panel accent">
       <h3>${wer}${n} Schluck${n > 1 ? "e" : ""} verteilen 🍺</h3>
-      <p class="hint">Tipp auf den, der trinken soll. An dich selbst geht nicht.
-      Die anderen erfahren es erst, wenn du fertig verteilt hast.</p>
       <div class="tiles">
         ${sipTargets(g, fromId)
           .map(
@@ -564,6 +580,7 @@ function handOutPanel(g, fromId) {
           )
           .join("")}
       </div>
+      ${undoZeile}
     </div>`;
 }
 
@@ -616,10 +633,10 @@ function guessScreen(g) {
       ? "Du bist dran"
       : `${esc(turn.name)} ist dran`;
 
+  const dranWer = pendingTotal(g) > 0 ? playerById(g, verteiler) : turn;
   return `
-    ${turnBar(dranText, ichDran)}
+    ${turnBar(dranWer, dranText, ichDran, `${sips} 🍺`)}
     <h2>${ROUND_TITLES[g.round]}</h2>
-    <p class="sub">${sips} Schluck${sips > 1 ? "e" : ""}</p>
     ${g.message ? `<p class="msg">${esc(g.message)}</p>` : ""}
     ${seatsHtml(others, turn.id)}
     <div class="felt">
@@ -671,7 +688,7 @@ function rowsScreen(g) {
         <h3>${cur?.card.card.rank} – ${cur?.kind === "drink" ? "selber trinken" : "verteilen"}, ${
       cur?.card.value
     } Schluck${cur?.card.value > 1 ? "e" : ""}</h3>
-        ${matches.length === 0 ? `<p class="hint" style="margin:0">Niemand hat diesen Wert.</p>` : ""}
+        ${matches.length === 0 ? `<p class="hint" style="margin:0">Passt bei niemandem.</p>` : ""}
         ${meine
           .map(
             (p) =>
@@ -729,9 +746,18 @@ function rowsScreen(g) {
     ? "Du deckst auf"
     : `${esc(hostName(g))} deckt auf`;
 
+  const dranWer = offen
+    ? playerById(g, distributorIds(g)[0])
+    : matches.length > 0 && g.revealedNow
+    ? matches[0]
+    : playerById(g, g.hostId);
   return `
-    ${turnBar(dranText, meinePendings || matches.some((p) => p.id === meId()) || binHost)}
-    <h2>Die zwei Reihen</h2>
+    ${turnBar(
+      dranWer,
+      dranText,
+      meinePendings || matches.some((p) => p.id === meId()) || binHost,
+      `${g.cursor + 1}/8`
+    )}
     ${g.message ? `<p class="msg">${esc(g.message)}</p>` : ""}
     ${seatsHtml(others, distributorIds(g))}
     <div class="felt">
@@ -757,8 +783,7 @@ function tiebreakScreen(g) {
     const ichFahre = fahrer.id === meId();
 
     return `
-      ${turnBar(ichFahre ? "Du fährst Bus 🚌" : `${esc(fahrer.name)} fährt Bus 🚌`, ichFahre)}
-      <h2>Stechen entschieden</h2>
+      ${turnBar(fahrer, ichFahre ? "Du fährst Bus 🚌" : `${esc(fahrer.name)} fährt Bus 🚌`, ichFahre)}
       <p class="msg">${esc(g.message ?? "")}</p>
       <div class="felt">
         ${
@@ -807,9 +832,8 @@ function tiebreakScreen(g) {
       : `<button class="wide" data-a="tieFlip">Nächste Karte aufdecken</button>`;
 
   return `
-    ${turnBar(darf ? "Du deckst auf" : `${esc(hostName(g))} deckt auf`, darf)}
-    <h2>Stechen ⚔️</h2>
-    <p class="sub">${esc(namen.join(" gegen "))}</p>
+    ${turnBar(playerById(g, g.hostId), darf ? "Du deckst auf" : `${esc(hostName(g))} deckt auf`, darf)}
+    <h2>Stechen ⚔️ <span class="leicht">${esc(namen.join(" gegen "))}</span></h2>
     ${g.message ? `<p class="msg">${esc(g.message)}</p>` : ""}
     ${seatsHtml(others, null)}
     <div class="felt">${mitte}</div>
@@ -872,10 +896,12 @@ function pyramidScreen(g) {
   }
 
   return `
-    ${turnBar(iDrive ? "Du fährst Bus 🚌" : `${esc(driver.name)} fährt Bus 🚌`, iDrive)}
-    <h2>Die Pyramide</h2>
-    <p class="sub">Reihe ${Math.min(level + 1, 5)} von 5 · Versuch ${g.attempts} ·
-       ${g.deck.length} Karten</p>
+    ${turnBar(
+      driver,
+      iDrive ? "Du fährst Bus 🚌" : `${esc(driver.name)} fährt Bus 🚌`,
+      iDrive,
+      `Reihe ${Math.min(level + 1, 5)}/5 · Versuch ${g.attempts}`
+    )}
     ${g.message ? `<p class="msg">${esc(g.message)}</p>` : ""}
     ${seatsHtml(others, driver.id)}
     <div class="felt">${pyramid}</div>
@@ -947,11 +973,7 @@ function betScreen(g) {
         <h3>${S.mode === "local" ? esc(wer.name) + ": " : ""}Einsatz${
       entwurf ? " auf " + suitName(entwurf) : ""
     }</h3>
-        <p class="hint">${
-          entwurf
-            ? "Wie viele Schlücke? Die trinkst du sofort – zurück geht dann nichts mehr."
-            : "Erst ein Pferd antippen, dann den Einsatz."
-        }</p>
+        ${entwurf ? "" : `<p class="hint">Erst ein Pferd antippen.</p>`}
         <div class="stepper">
           <button class="step" data-a="betMinus" ${betrag <= MIN_EINSATZ ? "disabled" : ""}>−</button>
           <span class="num">${betrag}</span>
@@ -977,9 +999,8 @@ function betScreen(g) {
       : "Du bist dran – setzen";
 
   return `
-    ${turnBar(dranText, S.mode === "local" || (!meine && fehlen.length > 0))}
-    <h2>Wetten 🐎</h2>
-    <p class="sub">Einsatz sofort trinken. Gewinnt dein Pferd, verteilst du das Doppelte.</p>
+    ${turnBar(wer ?? null, dranText, S.mode === "local" || (!meine && fehlen.length > 0))}
+    <h2>Wetten 🐎 <span class="leicht">Einsatz wird sofort getrunken</span></h2>
     <div class="horses">${pferde}</div>
     <div class="actions">${footer}</div>`;
 }
@@ -1081,7 +1102,9 @@ function raceScreen(g) {
     <div class="racehead ${binHost ? "me" : ""}">
       ${cardHtml(g.flipped, "t", { faceDown: !g.flipped })}
       <span class="txt">
-        <b>${binHost ? "Du deckst auf" : `${esc(hostName)} deckt auf`}</b>
+        <b>${avatar(playerById(g, g.hostId), true)} ${
+          binHost ? "Du deckst auf" : `${esc(hostName)} deckt auf`
+        }</b>
         <i>${g.message ? esc(g.message) : "Gleich geht's los."}</i>
       </span>
     </div>`;
@@ -1479,6 +1502,8 @@ el.addEventListener("click", (e) => {
     // Spielzüge
     case "guess":
       return dispatch({ type: "guess", value: t.dataset.v });
+    case "undo":
+      return dispatch({ type: "undoSip", fromId: t.dataset.from });
     case "sip":
       // `fromId` sagt, wessen Schlucke verteilt werden - online prüft der
       // Server das ohnehin nochmal gegen den echten Absender.
