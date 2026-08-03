@@ -15,6 +15,7 @@ import {
   MAX_EINSATZ,
   MIN_EINSATZ,
 } from "./race.js";
+import { currentPlayer, erlaubteReihen, guessBuild, pickSpot, TIPPS } from "./build.js";
 import { canUndo, pendingFor as racePendingFor, undoSip } from "./sips.js";
 import {
   discardCard,
@@ -47,6 +48,7 @@ export function applyAction(g, action, actorId = null) {
     g = { ...g, undoStack: {} };
   }
   if (g.game === "race") return applyRace(g, action, actorId);
+  if (g.game === "build") return applyBuild(g, action, actorId);
 
   switch (action.type) {
     case "guess":
@@ -100,6 +102,38 @@ function applyRace(g, action, actorId) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Bus bauen
+// ---------------------------------------------------------------------------
+
+function applyBuild(g, action, actorId) {
+  const wer = actorId ?? action.playerId;
+  switch (action.type) {
+    case "pickSpot":
+      return pickSpot(g, wer, Number(action.row), action.side);
+    case "guessBuild":
+      return guessBuild(g, wer, action.tipp);
+    default:
+      return g;
+  }
+}
+
+function mayActBuild(g, playerId, action) {
+  if (g.phase !== "play") return false;
+  if (currentPlayer(g)?.id !== playerId) return false;
+  switch (action.type) {
+    case "pickSpot":
+      return (
+        erlaubteReihen(g).includes(Number(action.row)) &&
+        (action.side === "left" || action.side === "right")
+      );
+    case "guessBuild":
+      return !!g.pick && TIPPS.includes(action.tipp);
+    default:
+      return false;
+  }
+}
+
 function mayActRace(g, playerId, action) {
   const istHost = !g.hostId || g.hostId === playerId;
   switch (action.type) {
@@ -132,6 +166,7 @@ function mayActRace(g, playerId, action) {
 export function mayAct(g, playerId, action) {
   if (!g.players.some((p) => p.id === playerId)) return false;
   if (g.game === "race") return mayActRace(g, playerId, action);
+  if (g.game === "build") return mayActBuild(g, playerId, action);
 
   switch (action.type) {
     case "guess":
