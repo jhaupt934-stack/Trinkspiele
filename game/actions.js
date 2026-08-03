@@ -21,6 +21,7 @@ import {
   finishGame,
   handOutSip,
   makeGuess,
+  darfWeiter,
   nextRow,
   pendingFor,
   pendingTotal,
@@ -130,10 +131,13 @@ export function mayAct(g, playerId, action) {
 
     // Aufdecken und weiterblaettern macht nur der Host, damit nicht mehrere
     // gleichzeitig durchklicken. Ohne Host (lokales Spiel) darf es jeder.
-    // Solange noch jemand verteilt, geht es nicht weiter.
     case "revealRow":
+      return g.phase === "rows" && !g.revealedNow && (!g.hostId || g.hostId === playerId);
+
+    // Weiterblaettern erst, wenn keiner mehr ablegen kann oder die
+    // 10 Sekunden Wartezeit um sind.
     case "nextRow":
-      return g.phase === "rows" && pendingTotal(g) === 0 && (!g.hostId || g.hostId === playerId);
+      return g.phase === "rows" && darfWeiter(g) && (!g.hostId || g.hostId === playerId);
 
     // Das Stechen steuert ebenfalls der Host.
     case "tiebreakFlip":

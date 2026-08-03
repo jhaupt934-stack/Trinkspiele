@@ -266,6 +266,7 @@ function startRows(g, message) {
     order,
     cursor: 0,
     revealedNow: false,
+    revealedAt: 0,
     pending: {},
     message: message ?? "Jetzt die zwei Reihen. Passende Karten ablegen!",
   };
@@ -278,9 +279,8 @@ export function currentRowCard(g) {
   return { kind: slot.kind, card };
 }
 
-export function revealRow(g) {
+export function revealRow(g, jetzt = Date.now()) {
   if (g.phase !== "rows" || g.revealedNow || g.cursor >= g.order.length) return g;
-  if (pendingTotal(g) > 0) return g; // erst muessen alle ihre Schluecke los sein
   const slot = g.order[g.cursor];
   const flip = (row) => row.map((c, i) => (i === slot.index ? { ...c, revealed: true } : c));
   return {
@@ -288,6 +288,7 @@ export function revealRow(g) {
     drinkRow: slot.kind === "drink" ? flip(g.drinkRow) : g.drinkRow,
     giveRow: slot.kind === "give" ? flip(g.giveRow) : g.giveRow,
     revealedNow: true,
+    revealedAt: jetzt,
     message: null,
   };
 }
@@ -337,11 +338,38 @@ export function discardCard(g, playerId) {
   };
 }
 
-export function nextRow(g) {
-  if (g.phase !== "rows" || pendingTotal(g) > 0) return g;
+/**
+ * Wie lange der Host mindestens warten muss, bevor er weiterblaettern darf.
+ *
+ * Sinn: Wer ablegen kann, soll die Chance dazu bekommen - aber niemand soll
+ * die Runde aufhalten. Nach 10 Sekunden geht es weiter, dann ist jeder selbst
+ * schuld, der nicht getippt hat. Kann ueberhaupt niemand ablegen und verteilt
+ * auch keiner mehr, geht es sofort weiter.
+ */
+export const WARTEZEIT_MS = 10000;
+
+export function warteBis(g) {
+  if (g.phase !== "rows" || !g.revealedNow) return 0;
+  const jemandKann = playersWithMatch(g).length > 0 || pendingTotal(g) > 0;
+  return jemandKann ? (g.revealedAt ?? 0) + WARTEZEIT_MS : 0;
+}
+
+/** Darf jetzt weitergeblaettert werden? */
+export function darfWeiter(g, jetzt = Date.now()) {
+  if (g.phase !== "rows") return false;
+  // Die letzte Karte darf die Runde nicht mit offenen Schlucken beenden -
+  // die wuerden beim Wechsel in die Pyramide verlorengehen.
+  const letzte = g.cursor + 1 >= (g.order?.length ?? 0);
+  if (letzte && pendingTotal(g) > 0) return false;
+  // 500 ms Kulanz, damit ein Handy mit leicht anderer Uhr nicht abgewiesen wird.
+  return jetzt >= warteBis(g) - 500;
+}
+
+export function nextRow(g, jetzt = Date.now()) {
+  if (!darfWeiter(g, jetzt)) return g;
   const cursor = g.cursor + 1;
   if (cursor >= g.order.length) return decideDriver({ ...g, cursor, revealedNow: false });
-  return { ...g, cursor, revealedNow: false, message: null };
+  return { ...g, cursor, revealedNow: false, revealedAt: 0, message: null };
 }
 
 // ---------------------------------------------------------------------------
