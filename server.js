@@ -16,10 +16,11 @@ import { Server } from "socket.io";
 
 import { initGame, MIN_PLAYERS, MAX_PLAYERS } from "./game/engine.js";
 import { initRace } from "./game/race.js";
+import { initBuild } from "./game/build.js";
 import { handleAction } from "./game/actions.js";
 
 /** Welche Spiele es gibt. Ein neues Spiel braucht hier nur eine Zeile mehr. */
-const SPIELE = { bus: initGame, race: initRace };
+const SPIELE = { bus: initGame, race: initRace, build: initBuild };
 const istSpiel = (s) => Object.prototype.hasOwnProperty.call(SPIELE, s);
 
 // Profilbilder: Gesichter mit verschiedenen Hauttoenen, Frisuren und Baerten,
