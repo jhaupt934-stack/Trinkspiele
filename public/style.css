@@ -625,14 +625,22 @@ button.step {
   overflow-x: auto; overflow-y: hidden; padding: 2px 0;
 }
 .brow .bcards::-webkit-scrollbar { display: none; }
-.brow .bcards .card { flex: none; }
+.brow .bcards .card { flex: none; position: relative; }
+
+/* Lange Reihen schieben sich uebereinander, sonst laufen sie aus dem Bild.
+   Die beiden Aussenkarten liegen oben - an die wird ja angelegt. */
+.felt.build.eng .brow .bcards { gap: 0; }
+.felt.build.eng .brow .bcards .card + .card { margin-left: -18px; }
+.felt.build.eng .brow .bcards .card {
+  box-shadow: -2px 0 4px rgba(0, 0, 0, .45);
+}
 .brow.sperr .bcards { opacity: .45; }
 
 /* Das Anbau-Feld: hoch wie eine Karte, breit genug zum Treffen. */
 .felt.build .brow .slot {
   flex: none; display: flex; flex-direction: column;
   align-items: center; justify-content: center; gap: 1px;
-  width: 46px; height: 78px; padding: 0;
+  width: 38px; height: 78px; padding: 0;
   color: #A9F3E2; background: rgba(255, 255, 255, .08);
   border: 2px dashed rgba(255, 255, 255, .3); border-radius: 12px;
   box-shadow: none;
@@ -699,4 +707,6 @@ button.step {
   background: var(--surface-2); border-radius: 7px; padding: 1px 5px;
 }
 .strip .sp.done i { color: var(--success); }
+.strip .sp.weg { opacity: .45; border-color: var(--danger); }
+.strip .sp.weg i { color: var(--danger); }
 .streak em { font-style: normal; font-size: 12px; font-weight: 800; color: var(--gold); }

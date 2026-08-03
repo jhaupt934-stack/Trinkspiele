@@ -183,7 +183,7 @@ const regelnHtml = (id) => REGELN[id] ?? "<p>Für dieses Spiel gibt es noch kein
 
 // Steht unten auf der Startseite. Wenn etwas komisch aussieht, sagt diese
 // Nummer sofort, welche Fassung auf dem Handy wirklich laeuft.
-const VERSION = "v27";
+const VERSION = "v29";
 
 const el = document.getElementById("app");
 
@@ -1290,7 +1290,20 @@ function raceEndScreen(g) {
  * Angetippt wird der Platz, nicht die Karte - deshalb sind die Felder gross
  * genug zum Treffen.
  */
-function buildRow(g, i, darfIch) {
+/**
+ * Wie gross duerfen die Karten sein? Je laenger die laengste Reihe, desto
+ * kleiner - sonst laeuft die Reihe auf einem kleinen Handy aus dem Bild.
+ * Alle Reihen benutzen dieselbe Groesse, sonst sieht es unruhig aus.
+ * Die Zahlen haengen an .card.s / .card.t und .eng in style.css;
+ * test-extrem.js rechnet nach, dass es passt.
+ */
+function kartenGroesse(lang) {
+  if (lang <= 2) return { size: "s", eng: false };
+  if (lang <= 4) return { size: "t", eng: false };
+  return { size: "t", eng: true };
+}
+
+function buildRow(g, i, darfIch, groesse) {
   const erlaubt = erlaubteReihen(g).includes(i);
   const karten = g.rows[i];
   const gewaehlt = (seite) => g.pick?.row === i && g.pick?.side === seite;
@@ -1340,9 +1353,11 @@ function sipStrip(g, dranId) {
     g.players
       .map(
         (p) =>
-          `<span class="sp ${p.id === dranId ? "on" : ""} ${istFertig(g, p.id) ? "done" : ""}">` +
+          `<span class="sp ${p.id === dranId ? "on" : ""} ${istFertig(g, p.id) ? "done" : ""} ` +
+          `${p.connected === false ? "weg" : ""}">` +
           `${avatar(p, true)}<span>${esc(p.name)}</span>` +
-          `<i>${durchgaenge(g, p.id)}/${DURCHGAENGE}</i><b>${p.sips}</b></span>`
+          `<i>${p.connected === false ? "offline" : `${durchgaenge(g, p.id)}/${DURCHGAENGE}`}</i>` +
+          `<b>${p.sips}</b></span>`
       )
       .join("") +
     `</div>`
@@ -1388,7 +1403,8 @@ function buildScreen(g) {
     (_, i) => `<span class="dot ${i < g.streak ? "on" : ""}"></span>`
   ).join("");
 
-  const reihen = g.rows.map((_, i) => buildRow(g, i, darfIch)).join("");
+  const groesse = kartenGroesse(longestLength(g));
+  const reihen = g.rows.map((_, i) => buildRow(g, i, darfIch, groesse)).join("");
 
   // Kopfzeile: wer baut, wie weit, und die zuletzt aufgedeckte Karte.
   const kopf = `
@@ -1405,7 +1421,13 @@ function buildScreen(g) {
   if (g.wartet) {
     footer = buildFehler(g, ichBinDran);
   } else if (!ichBinDran) {
-    footer = `<p class="banner">${esc(dran?.name ?? "")} baut gerade.</p>`;
+    // Wer dran ist, ist gerade weg? Dann steht das Spiel - das sollte man
+    // sehen, statt sich zu wundern, warum nichts passiert.
+    footer =
+      dran?.connected === false
+        ? `<p class="banner" style="border-color:var(--danger)">${esc(dran.name)} ist offline.
+           Ihr müsst warten, bis er die Seite wieder aufmacht.</p>`
+        : `<p class="banner">${esc(dran?.name ?? "")} baut gerade.</p>`;
   } else if (!g.pick) {
     footer = `<p class="banner">${
       nurLaengste
@@ -1429,7 +1451,7 @@ function buildScreen(g) {
     ${kopf}
     ${g.message ? `<p class="msg">${esc(g.message)}</p>` : ""}
     ${sipStrip(g, dran?.id)}
-    <div class="felt build">${reihen}</div>
+    <div class="felt build ${groesse.eng ? "eng" : ""}">${reihen}</div>
     <div class="actions">${footer}</div>`;
 }
 
