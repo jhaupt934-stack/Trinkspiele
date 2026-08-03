@@ -135,7 +135,7 @@ const regelnHtml = (id) => REGELN[id] ?? "<p>Für dieses Spiel gibt es noch kein
 
 // Steht unten auf der Startseite. Wenn etwas komisch aussieht, sagt diese
 // Nummer sofort, welche Fassung auf dem Handy wirklich laeuft.
-const VERSION = "v17";
+const VERSION = "v18";
 
 const el = document.getElementById("app");
 
@@ -732,6 +732,44 @@ function rowsScreen(g) {
 function tiebreakScreen(g) {
   const me = g.players.find((p) => p.id === meId());
   const others = g.players.filter((p) => p.id !== meId());
+
+  // Der Fahrer steht fest: erst das Ergebnis zeigen, dann weiter. Sonst
+  // blitzt die entscheidende Karte nur auf und keiner sieht, was passiert ist.
+  if (g.tieResult) {
+    const fahrer = playerById(g, g.tieResult.driverId);
+    const raus = g.tieResult.escaped.map((id) => playerById(g, id));
+    const binHost = S.mode === "local" || g.hostId === S.myId;
+    const ichFahre = fahrer.id === meId();
+
+    return `
+      ${turnBar(ichFahre ? "Du fährst Bus 🚌" : `${esc(fahrer.name)} fährt Bus 🚌`, ichFahre)}
+      <h2>Stechen entschieden</h2>
+      <p class="msg">${esc(g.message ?? "")}</p>
+      <div class="felt">
+        ${
+          g.tieMode === "draw"
+            ? `<span class="note">Gezogene Karten</span>
+               <div class="line">${g.candidates
+                 .concat(g.tieResult.escaped)
+                 .filter((id, i, a) => a.indexOf(id) === i)
+                 .map(
+                   (id) => `<div class="slot">${cardHtml(g.drawn?.[id], "m")}
+                     <span class="val">${esc(playerById(g, id).name)}</span></div>`
+                 )
+                 .join("")}</div>`
+            : `<span class="note">Aufgedeckt</span>${cardHtml(g.flipped, "m")}
+               <span class="note">${raus
+                 .map((p) => esc(p.name))
+                 .join(", ")} konnte ablegen und ist raus</span>`
+        }
+      </div>
+      <div class="actions">${
+        binHost
+          ? `<button class="wide" data-a="tieGo">Weiter zur Pyramide 🚌</button>`
+          : `<p class="banner">${esc(hostName(g))} macht weiter.</p>`
+      }</div>`;
+  }
+
   const namen = g.candidates.map((id) => playerById(g, id).name);
   const darf = canAct({ type: g.tieMode === "flip" ? "tiebreakFlip" : "tiebreakDraw" });
 
@@ -1434,6 +1472,8 @@ el.addEventListener("click", (e) => {
       return dispatch({ type: "tiebreakFlip" });
     case "tieDraw":
       return dispatch({ type: "tiebreakDraw" });
+    case "tieGo":
+      return dispatch({ type: "tiebreakGo" });
     case "pyr":
       return dispatch({ type: "pickPyramid", index: Number(t.dataset.i) });
     case "restart":
