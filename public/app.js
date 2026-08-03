@@ -183,7 +183,7 @@ const regelnHtml = (id) => REGELN[id] ?? "<p>Für dieses Spiel gibt es noch kein
 
 // Steht unten auf der Startseite. Wenn etwas komisch aussieht, sagt diese
 // Nummer sofort, welche Fassung auf dem Handy wirklich laeuft.
-const VERSION = "v30";
+const VERSION = "v32";
 
 const el = document.getElementById("app");
 
@@ -1290,39 +1290,49 @@ function raceEndScreen(g) {
  * Angetippt wird der Platz, nicht die Karte - deshalb sind die Felder gross
  * genug zum Treffen.
  */
-// So viel Platz bleibt einer Reihe auf dem kleinsten ueblichen Handy
-// (iPhone SE, 320 px): abzueglich Seitenrand, Filzrand, Reihenrand, den
-// beiden Anbau-Feldern und den Luecken daneben.
-const REIHE_PX = 320 - 2 * 18 - 2 * 8 - 2 * 5 - 2 * 38 - 2 * 6;
-const KARTE_BREIT = { s: 56, t: 38 };
-const KARTE_LUECKE = 5;
+// Karten fuer Drueber Drunter: die kleine Standardgroesse .card.t aus
+// style.css. Die Breite steht hier nochmal, weil der Ueberlapp damit
+// gerechnet wird - test-ui.js prueft, dass beides zusammenpasst.
+const DD_KARTE = 38;
+const DD_LUECKE = 5;
+const DD_MIN_SCHRITT = 6; // so viel von einer Karte bleibt mindestens sichtbar
 
 /**
- * Wie gross duerfen die Karten sein? Ab drei Karten die kleinen, sonst passt
- * schon eine kurze Reihe nicht mehr. Alle Reihen benutzen dieselbe Groesse,
- * sonst sieht es unruhig aus.
+ * Wie viel Platz hat eine Reihe wirklich? Haengt am Handy, deshalb wird die
+ * Fensterbreite genommen statt einer festen Zahl - auf einem grossen Display
+ * liegen die Karten dadurch weiter auseinander. Abgezogen werden Seitenrand,
+ * Filzrand, Reihenrand, die beiden Anbau-Felder, die Laengen-Anzeige und die
+ * Luecken dazwischen; ein bisschen Sicherheitsabstand bleibt zusaetzlich.
  */
-const kartenGroesse = (lang) => (lang <= 2 ? "s" : "t");
+function reihePlatz() {
+  const fenster = typeof window !== "undefined" && window.innerWidth ? window.innerWidth : 390;
+  const breite = Math.min(fenster, 620); // breiter wird .app nicht
+  const drumherum =
+    2 * 18 + // Seitenrand der Seite
+    2 * 8 + // Rand des Filzes
+    2 * 5 + // Rand der Reihe
+    2 * 32 + // die beiden Anbau-Felder
+    2 * 5 + // Luecke links und rechts davon
+    22 + // die Laengen-Anzeige
+    8; // Sicherheitsabstand, damit nichts am Rand klebt
+  return Math.max(110, breite - drumherum);
+}
 
 /**
  * Wie weit ruecken die Karten einer Reihe auseinander? Solange Platz ist, mit
- * normaler Luecke. Danach schieben sie sich zusammen - und je laenger die
- * Reihe, desto mehr. Die beiden Aussenkarten liegen oben drauf und bleiben
- * dadurch ganz zu sehen; gestapelt wird nur in der Mitte.
- * test-ui.js rechnet an der fertigen Reihe nach, dass es aufs Handy passt.
+ * normaler Luecke - danach schieben sie sich zusammen, und je laenger die
+ * Reihe, desto mehr. Die Karten selbst bleiben immer gleich gross.
  */
-function schrittWeite(n, size) {
-  const w = KARTE_BREIT[size];
-  if (n <= 1) return w;
-  if (n * w + (n - 1) * KARTE_LUECKE <= REIHE_PX) return w + KARTE_LUECKE;
-  return Math.max(9, Math.floor((REIHE_PX - w) / (n - 1)));
+function schrittWeite(n, platz = reihePlatz()) {
+  if (n <= 1) return DD_KARTE;
+  if (n * DD_KARTE + (n - 1) * DD_LUECKE <= platz) return DD_KARTE + DD_LUECKE;
+  return Math.max(DD_MIN_SCHRITT, Math.floor((platz - DD_KARTE) / (n - 1)));
 }
 
-function buildRow(g, i, darfIch, size) {
+function buildRow(g, i, darfIch, platz) {
   const erlaubt = erlaubteReihen(g).includes(i);
   const karten = g.rows[i];
-  const schritt = schrittWeite(karten.length, size);
-  const versatz = schritt - KARTE_BREIT[size]; // negativ, sobald es eng wird
+  const versatz = schrittWeite(karten.length, platz) - DD_KARTE; // negativ, wenn es eng wird
   const gewaehlt = (seite) => g.pick?.row === i && g.pick?.side === seite;
 
   const slot = (seite) => {
@@ -1346,7 +1356,7 @@ function buildRow(g, i, darfIch, size) {
   // immer ganz zu sehen, egal wie lang die Reihe ist - an die wird angelegt.
   const cards = karten
     .map((c, k) =>
-      cardHtml(c, size, {
+      cardHtml(c, "t", {
         style: [
           k > 0 ? `margin-left:${versatz}px` : "",
           `z-index:${20 - Math.min(k, karten.length - 1 - k)}`,
@@ -1359,8 +1369,14 @@ function buildRow(g, i, darfIch, size) {
     )
     .join("");
 
+  // Die Laenge steht links daneben: so viele Schluecke kostet es, wenn man
+  // sich hier verbaut. Ab fuenf wird die Zahl gelb, ab acht rot.
+  const n = karten.length;
+  const stufe = n >= 8 ? "heiss" : n >= 5 ? "warm" : "";
+
   return (
     `<div class="brow ${erlaubt ? "" : "sperr"} ${g.pick?.row === i ? "sel" : ""}">` +
+    `<span class="len ${stufe}" title="${n} Schluck${n > 1 ? "e" : ""}, wenn du hier falsch liegst">${n}</span>` +
     slot("left") +
     `<div class="bcards">${cards}</div>` +
     slot("right") +
@@ -1425,8 +1441,10 @@ function buildScreen(g) {
     (_, i) => `<span class="dot ${i < g.streak ? "on" : ""}"></span>`
   ).join("");
 
-  const size = kartenGroesse(longestLength(g));
-  const reihen = g.rows.map((_, i) => buildRow(g, i, darfIch, size)).join("");
+  // Einmal ausrechnen und an alle Reihen weiterreichen, damit sie denselben
+  // Platz zugrunde legen.
+  const platz = reihePlatz();
+  const reihen = g.rows.map((_, i) => buildRow(g, i, darfIch, platz)).join("");
 
   // Kopfzeile: wer baut, wie weit, und die zuletzt aufgedeckte Karte.
   const kopf = `
@@ -1458,10 +1476,11 @@ function buildScreen(g) {
     }</p>`;
   } else {
     const ref = randKarte(g, g.pick.row, g.pick.side);
+    const risiko = g.rows[g.pick.row].length;
     footer =
       `<div class="panel accent"><div class="ph"><h3>Gegen ` +
       `<span class="${isRed(ref) ? "rot" : ""}">${ref.rank}${suitSymbol(ref.suit)}</span>` +
-      ` – ${seiteName(g.pick.side)} an Reihe ${g.pick.row + 1}</h3></div>` +
+      ` – daneben kostet ${risiko} 🍺</h3></div>` +
       `<div class="tipps">` +
       `<button data-a="tipp" data-t="lower"><b>↓</b>tiefer</button>` +
       `<button data-a="tipp" data-t="equal"><b>=</b>gleich</button>` +
@@ -1649,6 +1668,18 @@ function readInputs() {
 // ---------------------------------------------------------------------------
 // Eingaben
 // ---------------------------------------------------------------------------
+
+// Dreht jemand das Handy oder klappt die Tastatur weg, aendert sich die
+// Breite - und damit, wie viele Karten nebeneinander passen. Also neu zeichnen.
+if (typeof window !== "undefined" && window.addEventListener) {
+  let dreh = null;
+  window.addEventListener("resize", () => {
+    clearTimeout(dreh);
+    dreh = setTimeout(() => {
+      if (S.screen === "game" && S.game?.game === "build") render();
+    }, 120);
+  });
+}
 
 el.addEventListener("click", (e) => {
   const t = e.target.closest("[data-a]");

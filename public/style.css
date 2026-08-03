@@ -257,6 +257,7 @@ button.minus:active { background: var(--danger); color: #fff; }
 .card.s .rk { font-size: 25px; }
 .card.s .st { font-size: 21px; }
 
+
 /* Nur fuer die Rennbahn: Streckenkarte und Pferd haben genau diese Groesse,
    damit sie nebeneinander auf einer Linie liegen. Die Zahlen muessen zu
    SCHRITT/KARTE_H in app.js passen - test-ui.js prueft das. */
@@ -614,12 +615,23 @@ button.step {
   box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, .08);
 }
 .brow {
-  display: flex; align-items: center; gap: 6px;
+  display: flex; align-items: center; gap: 5px;
   padding: 5px; border-radius: 15px;
   background: rgba(0, 0, 0, .16);
 }
 .brow + .brow { margin-top: 6px; }
 .brow.sel { background: rgba(46, 230, 197, .16); box-shadow: inset 0 0 0 1.5px var(--mint); }
+
+/* Wie lang ist die Reihe? Genau so viele Schluecke kostet ein Fehlgriff -
+   deshalb steht die Zahl daneben und faerbt sich, wenn es teuer wird. */
+.brow .len {
+  flex: none; width: 22px; height: 24px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 800;
+  background: rgba(255, 255, 255, .1); color: #BFF6E8;
+}
+.brow .len.warm { background: rgba(255, 201, 60, .22); color: var(--gold); }
+.brow .len.heiss { background: rgba(255, 107, 122, .25); color: var(--danger); }
 /* Der Abstand zwischen den Karten steht als margin-left an jeder Karte -
    app.js rechnet ihn aus, damit auch eine lange Reihe aufs Handy passt. */
 .brow .bcards {
@@ -637,7 +649,7 @@ button.step {
 .felt.build .brow .slot {
   flex: none; display: flex; flex-direction: column;
   align-items: center; justify-content: center; gap: 1px;
-  width: 38px; height: 78px; padding: 0;
+  width: 32px; height: 53px; padding: 0;
   color: #A9F3E2; background: rgba(255, 255, 255, .08);
   border: 2px dashed rgba(255, 255, 255, .3); border-radius: 12px;
   box-shadow: none;
