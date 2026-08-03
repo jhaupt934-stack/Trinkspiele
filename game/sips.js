@@ -68,9 +68,48 @@ export function giveSip(g, targetId, fromId) {
   if (offen - 1 > 0) pending[fromId] = offen - 1;
   else delete pending[fromId];
 
-  const next = { ...g, players, pending, draft: noteSip(g, fromId, targetId) };
+  // Fuer "Rueckgaengig": nur der letzte Schluck laesst sich zuruecknehmen.
+  const next = { ...g, players, pending, draft: noteSip(g, fromId, targetId), undo: { fromId, toId: targetId } };
   return offen - 1 === 0 ? { ...next, ...flushSips(next, fromId) } : next;
 }
 
+/**
+ * Den letzten Schluck zuruecknehmen - fuer den Fall, dass man danebengetippt
+ * hat. Gilt nur fuer den unmittelbar letzten und nur, solange die Runde nicht
+ * weitergelaufen ist (jede andere Aktion loescht das Rueckgaengig).
+ */
+export function canUndo(g, playerId) {
+  return !!g.undo && g.undo.fromId === playerId;
+}
+
+export function undoSip(g, playerId) {
+  if (!canUndo(g, playerId)) return g;
+  const { fromId, toId } = g.undo;
+
+  const players = g.players.map((p) => (p.id === toId ? { ...p, sips: Math.max(0, p.sips - 1) } : p));
+  const pending = { ...g.pending, [fromId]: pendingFor(g, fromId) + 1 };
+
+  // Zwischenstand zurueckdrehen
+  const draft = { ...(g.draft ?? {}) };
+  const meins = { ...(draft[fromId] ?? {}) };
+  if (meins[toId] > 1) meins[toId] -= 1;
+  else delete meins[toId];
+  if (Object.keys(meins).length) draft[fromId] = meins;
+  else delete draft[fromId];
+
+  // War die Meldung schon raus, wird sie mitkorrigiert. Die Nummer bleibt
+  // gleich, damit beim Empfaenger nicht nochmal etwas aufpoppt.
+  const run = (g.runs ?? {})[fromId] ?? 0;
+  const sipLog = (g.sipLog ?? [])
+    .map((e) =>
+      e.run === run && e.fromId === fromId && e.toId === toId ? { ...e, count: e.count - 1 } : e
+    )
+    .filter((e) => e.count > 0);
+
+  return { ...g, players, pending, draft, sipLog, undo: null };
+}
+
 /** Leerer Ausgangszustand fuer die Schluck-Verwaltung. */
-export const emptySips = () => ({ pending: {}, runs: {}, dist: 0, draft: {}, sipLog: [], sipSeq: 0 });
+export const emptySips = () => ({
+  pending: {}, runs: {}, dist: 0, draft: {}, sipLog: [], sipSeq: 0, undo: null,
+});

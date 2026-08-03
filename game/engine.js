@@ -19,16 +19,18 @@
 import { createDeck, createShuffledDeck, draw, isRed, rankValue, shuffle } from "./deck.js";
 import {
   addPending,
+  canUndo,
   distributorIds,
   emptySips,
   giveSip,
+  undoSip,
   pendingFor,
   pendingTotal,
   sipTargets,
 } from "./sips.js";
 
 // Damit die Oberflaeche alles aus einer Datei holen kann.
-export { distributorIds, pendingFor, pendingTotal, sipTargets };
+export { canUndo, distributorIds, pendingFor, pendingTotal, sipTargets, undoSip };
 
 export const ROUND_TITLES = [
   "Runde 1 – Rot oder Schwarz?",
@@ -110,60 +112,21 @@ function refill(g, need) {
 }
 
 // ---------------------------------------------------------------------------
-// Benachrichtigung "du hast Schlucke bekommen"
+// Schluecke verteilen
 // ---------------------------------------------------------------------------
-//
-// Waehrend jemand verteilt, wird nur mitgezaehlt (`draft`). Erst wenn der
-// letzte Schluck vergeben ist, geht die Meldung raus - und zwar eine pro
-// Empfaenger mit der Gesamtzahl. Sonst wuerde bei drei Schlucken dreimal
-// hintereinander etwas aufpoppen.
-
-/** Einen Schluck zum Zwischenstand der laufenden Verteilung dazuzaehlen. */
-function noteSip(g, fromId, toId) {
-  const bisher = (g.draft ?? {})[fromId] ?? {};
-  return { ...(g.draft ?? {}), [fromId]: { ...bisher, [toId]: (bisher[toId] ?? 0) + 1 } };
-}
-
-/** Verteilung abgeschlossen: fuer jeden Empfaenger genau eine Meldung schreiben. */
-function flushSips(g, fromId) {
-  const stand = (g.draft ?? {})[fromId];
-  const draft = { ...(g.draft ?? {}) };
-  delete draft[fromId];
-  if (!stand) return { draft };
-
-  let seq = g.sipSeq ?? 0;
-  const neu = Object.entries(stand).map(([toId, count]) => ({
-    seq: ++seq,
-    run: (g.runs ?? {})[fromId] ?? 0,
-    fromId,
-    toId,
-    count,
-  }));
-  return { draft, sipSeq: seq, sipLog: [...(g.sipLog ?? []), ...neu].slice(-24) };
-}
 
 /**
- * `fromId` gibt `targetId` einen Schluck. Mehrere Spieler koennen das
- * gleichzeitig tun - jeder arbeitet seinen eigenen Eintrag in `pending` ab.
+ * `fromId` gibt `targetId` einen Schluck. Die eigentliche Arbeit macht
+ * sips.js - dieselbe Mechanik benutzt auch das Pferderennen. Hier kommt nur
+ * dazu, was fuer Busfahren gilt: In Phase 1 ist nach dem letzten Schluck der
+ * naechste Spieler dran.
  */
 export function handOutSip(g, targetId, fromId) {
-  const offen = pendingFor(g, fromId);
-  if (!fromId || offen <= 0 || targetId === fromId) return g;
-  if (!playerById(g, targetId)) return g;
+  const next = giveSip(g, targetId, fromId);
+  if (next === g) return g;
 
-  const players = g.players.map((p) => (p.id === targetId ? { ...p, sips: p.sips + 1 } : p));
-  const pending = { ...g.pending };
-  if (offen - 1 > 0) pending[fromId] = offen - 1;
-  else delete pending[fromId];
-
-  const draft = noteSip(g, fromId, targetId);
-  let next = { ...g, players, pending, draft };
-
-  // Fertig? Dann jetzt die gesammelten Meldungen verschicken.
-  if (offen - 1 === 0) next = { ...next, ...flushSips(next, fromId) };
-
-  // In Phase 1 verteilt immer nur einer - danach ist der Naechste dran.
-  if (g.phase === "guess" && pendingTotal(next) === 0) return nextTurn(next, null);
+  // Ueber den Zugwechsel hinweg laesst sich nichts mehr zurueckholen.
+  if (g.phase === "guess" && pendingTotal(next) === 0) return nextTurn({ ...next, undo: null }, null);
   return next;
 }
 

@@ -15,7 +15,7 @@ import {
   MAX_EINSATZ,
   MIN_EINSATZ,
 } from "./race.js";
-import { pendingFor as racePendingFor } from "./sips.js";
+import { canUndo, pendingFor as racePendingFor, undoSip } from "./sips.js";
 import {
   discardCard,
   finishGame,
@@ -39,6 +39,11 @@ import {
  * Lokal steht der Verteiler im Feld `fromId` der Aktion.
  */
 export function applyAction(g, action, actorId = null) {
+  // Rueckgaengig gilt nur fuer den unmittelbar letzten Schluck. Sobald sonst
+  // irgendetwas passiert, ist es verfallen.
+  if (g.undo && action.type !== "handOutSip" && action.type !== "undoSip") {
+    g = { ...g, undo: null };
+  }
   if (g.game === "race") return applyRace(g, action, actorId);
 
   switch (action.type) {
@@ -46,6 +51,8 @@ export function applyAction(g, action, actorId = null) {
       return makeGuess(g, action.value);
     case "handOutSip":
       return handOutSip(g, action.targetId, actorId ?? action.fromId);
+    case "undoSip":
+      return undoSip(g, actorId ?? action.fromId);
     case "revealRow":
       return revealRow(g);
     case "discard":
@@ -84,6 +91,8 @@ function applyRace(g, action, actorId) {
       return flipRace(g);
     case "handOutSip":
       return handOutSipRace(g, action.targetId, wer);
+    case "undoSip":
+      return undoSip(g, wer);
     default:
       return g;
   }
@@ -109,6 +118,8 @@ function mayActRace(g, playerId, action) {
 
     case "handOutSip":
       return g.phase === "payout" && racePendingFor(g, playerId) > 0;
+    case "undoSip":
+      return g.phase === "payout" && canUndo(g, playerId);
 
     default:
       return false;
@@ -128,6 +139,10 @@ export function mayAct(g, playerId, action) {
     // das mehrere gleichzeitig sein, keiner muss auf den anderen warten.
     case "handOutSip":
       return pendingFor(g, playerId) > 0;
+
+    // Den letzten Schluck zuruecknehmen, falls man danebengetippt hat.
+    case "undoSip":
+      return canUndo(g, playerId);
 
     // Aufdecken und weiterblaettern macht nur der Host, damit nicht mehrere
     // gleichzeitig durchklicken. Ohne Host (lokales Spiel) darf es jeder.

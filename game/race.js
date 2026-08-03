@@ -245,7 +245,7 @@ export function handOutSipRace(g, targetId, fromId) {
   if (g.phase !== "payout") return g;
   const next = giveSip(g, targetId, fromId);
   if (next === g) return g;
-  if (pendingTotal(next) === 0) return { ...next, phase: "finished", message: null };
+  if (pendingTotal(next) === 0) return { ...next, phase: "finished", message: null, undo: null };
   return next;
 }
 
