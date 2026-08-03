@@ -104,7 +104,10 @@ button.tile:active { border-color: var(--mint); }
   background: linear-gradient(to top, var(--bg) 0%, var(--bg) 68%, rgba(20,16,49,0));
 }
 .actions > *:first-child { margin-top: 0; }
-.actions .panel, .actions .banner { margin-top: 0; margin-bottom: 0; }
+/* Kleine Luecke zwischen Auswahlfeld und dem Knopf darunter - sonst kleben
+   die beiden aneinander und man tippt leicht daneben. */
+.actions .panel, .actions .banner { margin-top: 0; margin-bottom: 12px; }
+.actions > *:last-child { margin-bottom: 0; }
 
 .row { display: flex; gap: 12px; }
 .row > button { flex: 1; }
@@ -450,10 +453,10 @@ button.step {
 /* Eine Farbe je Pferd - viel leichter zu verfolgen als zweimal rot,
    zweimal schwarz. Die Farben stehen ausgeschrieben da; color-mix() waere
    kuerzer, kennen aeltere Handys aber nicht. */
-.lane.hearts   { --bahn: #FF5C7A; }
-.lane.diamonds { --bahn: #FFA23C; }
-.lane.clubs    { --bahn: #4FC3F7; }
-.lane.spades   { --bahn: #A78BFA; }
+.lane.hearts,   .pf.hearts   { --bahn: #FF5C7A; }
+.lane.diamonds, .pf.diamonds { --bahn: #FFA23C; }
+.lane.clubs,    .pf.clubs    { --bahn: #4FC3F7; }
+.lane.spades,   .pf.spades   { --bahn: #A78BFA; }
 
 .lane.hearts   .trail { background: linear-gradient(180deg, rgba(255,92,122,.10), rgba(255,92,122,.45)); }
 .lane.diamonds .trail { background: linear-gradient(180deg, rgba(255,162,60,.10), rgba(255,162,60,.45)); }
@@ -477,21 +480,29 @@ button.step {
   box-shadow: 0 2px 6px rgba(0,0,0,.4), inset 0 -2px 6px rgba(0,0,0,.18);
 }
 
-.lanes { position: relative; display: grid; grid-template-columns: 42px repeat(4, 1fr); gap: 6px; }
-.marks { position: relative; }
-.mk {
+/* Hintergrund und Stufen-Zeilen liegen uebereinander und benutzen dasselbe
+   Spaltenraster. Dadurch sitzen Streckenkarte und Pferd zwangslaeufig auf
+   derselben Hoehe - sie stehen im selben Zeilenelement. */
+.lanes { position: relative; }
+.lanes .bg, .lanes .step {
   position: absolute; left: 0; right: 0;
-  display: flex; align-items: center; justify-content: center;
+  display: grid; grid-template-columns: 42px repeat(4, 1fr); gap: 6px;
 }
+.lanes .bg { top: 0; bottom: 0; }
+.lanes .step { z-index: 2; align-items: center; }
+
+.step .mk, .step .pf {
+  display: flex; align-items: center; justify-content: center; height: 100%;
+}
+.hw { position: relative; display: inline-flex; }
+
 .mk-start {
   font-size: 9px; font-weight: 800; letter-spacing: 1.2px;
   color: rgba(255,255,255,.55);
 }
 .mk-ziel { font-size: 24px; }
 
-/* Eine Bahn: dunkler Streifen, davor die farbige Spur bis zum Pferd.
-   Bewusst ohne overflow:hidden, sonst wird die Stufenzahl am Rand
-   abgeschnitten. Die Ecken runden Spur und Ziellinie selbst ab. */
+/* Eine Bahn: dunkler Streifen, davor die farbige Spur bis zum Pferd. */
 .lane {
   position: relative; border-radius: 14px;
   background: linear-gradient(180deg, rgba(0,0,0,.3), rgba(0,0,0,.12));
@@ -511,13 +522,10 @@ button.step {
   background-size: 14px 14px;
   opacity: .85;
 }
-.lane .horse {
-  position: absolute; left: 50%; transform: translateX(-50%);
-  transition: top .35s cubic-bezier(.3,1.2,.5,1);
-  z-index: 2;
-}
+.lane.win { box-shadow: inset 0 0 0 2px var(--gold), 0 0 22px rgba(255,201,60,.35); }
+
 /* Die Stufenzahl direkt am Pferd - so muss niemand Felder abzaehlen. */
-.lane .stufe {
+.stufe {
   position: absolute; top: -5px; right: -7px;
   min-width: 19px; height: 19px; padding: 0 3px;
   display: flex; align-items: center; justify-content: center;
@@ -525,19 +533,12 @@ button.step {
   font-size: 12px; font-weight: 800; line-height: 1;
   box-shadow: 0 2px 5px rgba(0,0,0,.45);
 }
-.lane.win .stufe { background: var(--gold); }
 
 /* Trennlinien zwischen den Stufen, quer ueber alle Bahnen */
 .rowline {
   position: absolute; left: 0; right: 0; height: 1px; z-index: 1;
   background: rgba(255,255,255,.16); pointer-events: none;
 }
-.lane.moved .horse .card { box-shadow: 0 0 0 3px var(--bahn), 0 4px 12px rgba(0,0,0,.5); }
-.lane.win {
-  box-shadow: inset 0 0 0 2px var(--gold), 0 0 22px rgba(255,201,60,.35);
-}
-.lane.win .horse .card { box-shadow: 0 0 0 3px var(--gold), 0 4px 14px rgba(0,0,0,.5); }
-
 
 /* Wer gesetzt hat: nur Gesichter, feste Hoehe, hoechstens drei.
    Sonst werden die vier Spalten unterschiedlich hoch. */

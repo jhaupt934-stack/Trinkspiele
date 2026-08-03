@@ -111,6 +111,10 @@ const REGELN = {
     <p>Der Host deckt eine Karte nach der anderen auf. Kommt zum Beispiel Herz,
     rückt das Herz-Ass ein Feld vor. Wer <strong>Feld ${ZIEL}</strong> erreicht –
     also hinter der letzten Streckenkarte – hat gewonnen.</p>
+    <p>Kommt ein Pferd ins Ziel, auf das <em>niemand</em> gesetzt hat, ist das
+    Rennen aber nicht vorbei: Dieses Pferd ist durch und läuft nicht mehr mit,
+    die anderen rennen weiter. Erst das erste Pferd mit einer Wette beendet
+    das Rennen.</p>
 
     <h3>Die Streckenkarten</h3>
     <p>Sobald <em>alle vier</em> Pferde mindestens auf Höhe einer Streckenkarte
@@ -131,7 +135,7 @@ const regelnHtml = (id) => REGELN[id] ?? "<p>Für dieses Spiel gibt es noch kein
 
 // Steht unten auf der Startseite. Wenn etwas komisch aussieht, sagt diese
 // Nummer sofort, welche Fassung auf dem Handy wirklich laeuft.
-const VERSION = "v15";
+const VERSION = "v17";
 
 const el = document.getElementById("app");
 
@@ -972,40 +976,44 @@ function raceScreen(g) {
     ).join("") +
     `</div>`;
 
-  // Linke Spalte: Start, die fuenf Streckenkarten, Ziel. Gleiche Kartengroesse
-  // und dieselbe Hoehe wie die Pferde, damit alles auf einer Linie liegt.
-  const marken = Array.from({ length: ZIEL + 1 }, (_, feld) => {
-    let inhalt;
-    if (feld === 0) inhalt = `<span class="mk-start">START</span>`;
-    else if (feld > STRECKENKARTEN) inhalt = `<span class="mk-ziel">🏁</span>`;
+  // Hintergrund: die vier farbigen Bahnen mit ihrer Fortschritts-Spur.
+  const bahnen =
+    `<div class="bg"><span></span>` +
+    HORSE_ORDER.map((suit) => {
+      const pos = g.horses[suit];
+      const cls = ["lane", suit, g.winner === suit ? "win" : "", g.lastMove?.suit === suit ? "moved" : ""]
+        .join(" ")
+        .trim();
+      return `<span class="${cls}">
+                <span class="trail" style="height:${pos * SCHRITT + KARTE_H / 2}px"></span>
+                <span class="ziellinie"></span>
+              </span>`;
+    }).join("") +
+    `</div>`;
+
+  // Eine Zeile je Stufe. Streckenkarte und Pferde stehen im SELBEN Element -
+  // nur so koennen sie nicht gegeneinander verrutschen.
+  const stufen = Array.from({ length: ZIEL + 1 }, (_, feld) => {
+    let marke;
+    if (feld === 0) marke = `<span class="mk-start">START</span>`;
+    else if (feld > STRECKENKARTEN) marke = `<span class="mk-ziel">🏁</span>`;
     else {
       const s = g.side[feld - 1];
-      inhalt = cardHtml(s.card, "t", { faceDown: !s.revealed });
+      marke = cardHtml(s.card, "t", { faceDown: !s.revealed });
     }
-    return `<span class="mk" style="top:${feld * SCHRITT}px;height:${KARTE_H}px">${inhalt}</span>`;
+
+    const zellen = HORSE_ORDER.map((suit) => {
+      if (g.horses[suit] !== feld) return `<span class="pf"></span>`;
+      return `<span class="pf ${suit}"><span class="hw">${horseCard(suit, "t")}
+                <span class="stufe">${feld === ZIEL ? "🏁" : feld}</span></span></span>`;
+    }).join("");
+
+    return `<div class="step" style="top:${feld * SCHRITT}px;height:${KARTE_H}px">
+              <span class="mk">${marke}</span>${zellen}
+            </div>`;
   }).join("");
 
-  const bahnen = HORSE_ORDER.map((suit) => {
-    const pos = g.horses[suit];
-    const cls = [
-      "lane",
-      suit,
-      g.winner === suit ? "win" : "",
-      g.lastMove?.suit === suit ? "moved" : "",
-    ].join(" ");
-    return `
-      <span class="${cls}" style="height:${BAHN_H}px">
-        <span class="trail" style="height:${pos * SCHRITT + KARTE_H / 2}px"></span>
-        <span class="ziellinie"></span>
-        <span class="horse" style="top:${pos * SCHRITT}px">
-          ${horseCard(suit, "t")}
-          <span class="stufe">${pos === ZIEL ? "🏁" : pos}</span>
-        </span>
-      </span>`;
-  }).join("");
-
-  // Trennlinien quer ueber alle Bahnen, genau zwischen zwei Stufen.
-  // Ohne die sieht man nicht, auf welcher Stufe ein Pferd steht.
+  // Trennlinien genau zwischen zwei Stufen.
   const linien = Array.from(
     { length: ZIEL },
     (_, i) => `<span class="rowline" style="top:${i * SCHRITT + SCHRITT / 2 + KARTE_H / 2}px"></span>`
@@ -1030,9 +1038,9 @@ function raceScreen(g) {
     <div class="track">
       ${kopf}
       <div class="lanes" style="height:${BAHN_H}px">
-        <span class="marks">${marken}</span>
         ${bahnen}
         ${linien}
+        ${stufen}
       </div>
     </div>
     <div class="actions">${footer}</div>`;
