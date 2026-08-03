@@ -68,34 +68,37 @@ export function giveSip(g, targetId, fromId) {
   if (offen - 1 > 0) pending[fromId] = offen - 1;
   else delete pending[fromId];
 
-  // Fuer "Rueckgaengig" wird jeder vergebene Schluck der Reihe nach gemerkt.
-  // Dadurch kann man sich Schritt fuer Schritt zurueckarbeiten und nicht nur
-  // den allerletzten zuruecknehmen.
-  const stapel = { ...(g.undoStack ?? {}), [fromId]: [...(g.undoStack?.[fromId] ?? []), targetId] };
+  // Fuer "Rueckgaengig" wird pro Empfaenger mitgezaehlt, wie viel man ihm in
+  // dieser Verteilung gegeben hat. So kann man gezielt bei einer bestimmten
+  // Person zuruecknehmen, nicht nur den zuletzt vergebenen Schluck.
+  const bisher = g.undoStack?.[fromId] ?? {};
+  const stapel = {
+    ...(g.undoStack ?? {}),
+    [fromId]: { ...bisher, [targetId]: (bisher[targetId] ?? 0) + 1 },
+  };
 
   const next = { ...g, players, pending, draft: noteSip(g, fromId, targetId), undoStack: stapel };
   return offen - 1 === 0 ? { ...next, ...flushSips(next, fromId) } : next;
 }
 
-/** Hat dieser Spieler noch etwas zurueckzunehmen? */
-export const canUndo = (g, playerId) => (g.undoStack?.[playerId]?.length ?? 0) > 0;
+/** Wie viel hat dieser Spieler in der laufenden Verteilung wem gegeben? */
+export const givenSoFar = (g, playerId) => g.undoStack?.[playerId] ?? {};
 
-/** An wen ging der Schluck, der als naechstes zurueckgenommen wird? */
-export function undoTarget(g, playerId) {
-  const stapel = g.undoStack?.[playerId] ?? [];
-  return stapel.length ? stapel[stapel.length - 1] : null;
-}
+/** Kann bei dieser Person etwas zurueckgenommen werden? */
+export const canUndo = (g, playerId, toId = null) => {
+  const gegeben = givenSoFar(g, playerId);
+  if (toId) return (gegeben[toId] ?? 0) > 0;
+  return Object.values(gegeben).some((n) => n > 0);
+};
 
 /**
- * Den zuletzt vergebenen Schluck zuruecknehmen. Mehrfach hintereinander
- * moeglich, bis die ganze Verteilung wieder offen ist. Sobald die Runde
- * weiterlaeuft (aufdecken, weiterblaettern, naechster Spieler), ist Schluss.
+ * Einen Schluck bei einer bestimmten Person zuruecknehmen. Solange die Runde
+ * nicht weitergelaufen ist, kann man das bei jedem tun, dem man in dieser
+ * Verteilung etwas gegeben hat - nicht nur beim zuletzt Angetippten.
  */
-export function undoSip(g, playerId) {
-  if (!canUndo(g, playerId)) return g;
+export function undoSip(g, playerId, toId) {
   const fromId = playerId;
-  const stapel = g.undoStack[fromId];
-  const toId = stapel[stapel.length - 1];
+  if (!toId || !canUndo(g, fromId, toId)) return g;
 
   const players = g.players.map((p) => (p.id === toId ? { ...p, sips: Math.max(0, p.sips - 1) } : p));
   const pending = { ...g.pending, [fromId]: pendingFor(g, fromId) + 1 };
@@ -121,9 +124,12 @@ export function undoSip(g, playerId) {
   if (Object.keys(meins).length) draft[fromId] = meins;
   else delete draft[fromId];
 
-  const rest = stapel.slice(0, -1);
+  // Denselben Schritt im Rueckgaengig-Zaehler
+  const zaehler = { ...(g.undoStack?.[fromId] ?? {}) };
+  if (zaehler[toId] > 1) zaehler[toId] -= 1;
+  else delete zaehler[toId];
   const undoStack = { ...g.undoStack };
-  if (rest.length) undoStack[fromId] = rest;
+  if (Object.keys(zaehler).length) undoStack[fromId] = zaehler;
   else delete undoStack[fromId];
 
   return { ...g, players, pending, draft, sipLog, undoStack };

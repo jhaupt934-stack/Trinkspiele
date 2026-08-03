@@ -20,7 +20,7 @@ import { createDeck, createShuffledDeck, draw, isRed, rankValue, shuffle } from 
 import {
   addPending,
   canUndo,
-  undoTarget,
+  givenSoFar,
   distributorIds,
   emptySips,
   giveSip,
@@ -31,7 +31,7 @@ import {
 } from "./sips.js";
 
 // Damit die Oberflaeche alles aus einer Datei holen kann.
-export { canUndo, undoTarget, distributorIds, pendingFor, pendingTotal, sipTargets, undoSip };
+export { canUndo, givenSoFar, distributorIds, pendingFor, pendingTotal, sipTargets, undoSip };
 
 export const ROUND_TITLES = [
   "Runde 1 – Rot oder Schwarz?",

@@ -54,7 +54,7 @@ export function applyAction(g, action, actorId = null) {
     case "handOutSip":
       return handOutSip(g, action.targetId, actorId ?? action.fromId);
     case "undoSip":
-      return undoSip(g, actorId ?? action.fromId);
+      return undoSip(g, actorId ?? action.fromId, action.targetId);
     case "revealRow":
       return revealRow(g);
     case "discard":
@@ -94,7 +94,7 @@ function applyRace(g, action, actorId) {
     case "handOutSip":
       return handOutSipRace(g, action.targetId, wer);
     case "undoSip":
-      return undoSip(g, wer);
+      return undoSip(g, wer, action.targetId);
     default:
       return g;
   }
@@ -121,7 +121,7 @@ function mayActRace(g, playerId, action) {
     case "handOutSip":
       return g.phase === "payout" && racePendingFor(g, playerId) > 0;
     case "undoSip":
-      return g.phase === "payout" && canUndo(g, playerId);
+      return g.phase === "payout" && canUndo(g, playerId, action.targetId);
 
     default:
       return false;
@@ -144,7 +144,7 @@ export function mayAct(g, playerId, action) {
 
     // Den letzten Schluck zuruecknehmen, falls man danebengetippt hat.
     case "undoSip":
-      return canUndo(g, playerId);
+      return canUndo(g, playerId, action.targetId);
 
     // Aufdecken und weiterblaettern macht nur der Host, damit nicht mehrere
     // gleichzeitig durchklicken. Ohne Host (lokales Spiel) darf es jeder.
