@@ -17,7 +17,7 @@ import { Server } from "socket.io";
 import { initGame, MIN_PLAYERS, MAX_PLAYERS } from "./game/engine.js";
 import { initRace } from "./game/race.js";
 import { initBuild } from "./game/build.js";
-import { handleAction } from "./game/actions.js";
+import { handleAction, ueberspringen, wartetAuf } from "./game/actions.js";
 
 /** Welche Spiele es gibt. Ein neues Spiel braucht hier nur eine Zeile mehr. */
 const SPIELE = { bus: initGame, race: initRace, build: initBuild };
@@ -32,6 +32,14 @@ const AVATARE = [
   "👳🏽", "🧕🏽", "👨🏾‍🦱", "👩🏾",
   "🧔🏿", "👩🏿‍🦳", "👨🏿‍🦲", "👵🏼",
 ];
+
+/**
+ * So lange darf jemand weg sein, bevor die Runde ohne ihn weitergeht.
+ * Kurz genug, dass keiner ewig auf ein totes Handy wartet - lang genug, dass
+ * ein Tunnel oder ein Anruf nicht gleich den Zug kostet.
+ */
+const WEG_MS = 30_000;
+const PRUEF_MS = 5_000;
 
 /** Das erste Bild, das in dieser Lobby noch keiner hat. */
 function freiesAvatar(lobby) {
@@ -134,6 +142,38 @@ function findBySocket(socketId) {
 
 const io = new Server(server, { cors: { origin: "*" } });
 
+/**
+ * Der Spielstand fuehrt eine eigene Spielerliste. Wer online ist, steht aber
+ * in der Lobby - also nach jeder Aenderung hinueberkopieren, sonst weiss das
+ * Spiel nichts davon, dass jemand weg ist.
+ */
+function syncVerbindung(lobby, sendenAn = null) {
+  if (!lobby.game) return;
+  const stand = new Map(lobby.players.map((p) => [p.id, p.connected !== false]));
+  const players = lobby.game.players.map((p) =>
+    p.connected === (stand.get(p.id) ?? false) ? p : { ...p, connected: stand.get(p.id) ?? false }
+  );
+  if (players.every((p, i) => p === lobby.game.players[i])) return;
+  lobby.game = { ...lobby.game, players, hostId: hostVon(lobby) ?? lobby.game.hostId };
+  (sendenAn ?? io.to(lobby.code)).emit("game", lobby.game);
+}
+
+const hostVon = (lobby) => lobby.players.find((p) => p.isHost)?.id ?? null;
+
+/**
+ * Der Host ist weg: Die Rolle geht an den ersten Anwesenden - auch mitten in
+ * einer Runde, sonst kann niemand mehr aufdecken oder neu starten.
+ */
+function hostUebergeben(lobby) {
+  const host = lobby.players.find((p) => p.isHost);
+  if (host && host.connected !== false) return false;
+  const neuer = lobby.players.find((p) => p.connected !== false);
+  if (!neuer || neuer === host) return false;
+  lobby.players.forEach((p) => (p.isHost = p === neuer));
+  if (lobby.game) lobby.game = { ...lobby.game, hostId: neuer.id };
+  return true;
+}
+
 io.on("connection", (socket) => {
   socket.on("createLobby", ({ name, spiel, avatar } = {}, ack) => {
     const code = makeCode();
@@ -196,7 +236,9 @@ io.on("connection", (socket) => {
     player.connected = true;
     lobby.sockets.set(playerId, socket.id);
     lobby.lastActivity = Date.now();
+    delete lobby.wegSeit?.[playerId];
     socket.join(lobby.code);
+    syncVerbindung(lobby);
     ack?.({ ok: true, playerId, lobby: lobbyView(lobby) });
     io.to(lobby.code).emit("lobby", lobbyView(lobby));
     if (lobby.game) socket.emit("game", lobby.game);
@@ -334,6 +376,11 @@ io.on("connection", (socket) => {
       lobby.players = lobby.players.filter((p) => p.id !== playerId);
       if (lobby.players.length === 0) return void lobbies.delete(lobby.code);
       if (!lobby.players.some((p) => p.isHost)) lobby.players[0].isHost = true;
+    } else {
+      (lobby.wegSeit ??= {})[playerId] = Date.now();
+      hostUebergeben(lobby);
+      syncVerbindung(lobby);
+      if (lobby.game) io.to(lobby.code).emit("game", lobby.game);
     }
     io.to(lobby.code).emit("lobby", lobbyView(lobby));
   });
@@ -345,6 +392,40 @@ setInterval(() => {
     if (now - lobby.lastActivity > IDLE_MS) lobbies.delete(code);
   }
 }, 10 * 60 * 1000);
+
+/**
+ * Wer weg ist und dabei die Runde blockiert, wird nach einer halben Minute
+ * uebersprungen. Ohne das steht das Spiel still, sobald jemand die App zumacht
+ * oder in ein Funkloch faehrt - und alle anderen sitzen davor und warten.
+ */
+export function pruefeAbwesende(jetzt = Date.now()) {
+  let uebersprungen = 0;
+  for (const lobby of lobbies.values()) {
+    if (!lobby.game || lobby.game.phase === "finished") continue;
+    if (hostUebergeben(lobby)) {
+      syncVerbindung(lobby);
+      io.to(lobby.code).emit("lobby", lobbyView(lobby));
+      io.to(lobby.code).emit("game", lobby.game);
+    }
+
+    const weg = lobby.wegSeit ?? {};
+    for (const id of wartetAuf(lobby.game)) {
+      const spieler = lobby.players.find((p) => p.id === id);
+      if (!spieler || spieler.connected !== false) continue;
+      if (jetzt - (weg[id] ?? jetzt) < WEG_MS) continue;
+
+      const next = ueberspringen(lobby.game, id);
+      if (next === lobby.game) continue;
+      lobby.game = next;
+      delete weg[id];
+      uebersprungen++;
+      io.to(lobby.code).emit("game", lobby.game);
+    }
+  }
+  return uebersprungen;
+}
+
+setInterval(pruefeAbwesende, PRUEF_MS).unref?.();
 
 server.listen(PORT, () => {
   console.log("");
