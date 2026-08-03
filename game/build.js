@@ -31,11 +31,12 @@ export const DURCHGAENGE = 2; // so oft muss das jeder schaffen
 
 /**
  * Hoechstlaenge einer Reihe. Wer nie danebentippt, baut pro Zug fuenf Karten
- * an; bei acht Spielern waeren das 80 Karten - mehr als ein Deck hat, und auf
- * dem Handy laengst nicht mehr zu sehen. Erreicht eine Reihe diese Laenge,
- * wird sie abgeraeumt und faengt mit einer frischen Karte wieder an.
+ * an - bei acht Spielern waeren das 80 Karten, ein Deck hat 52. Erreicht eine
+ * Reihe diese Laenge, wird sie abgeraeumt und faengt mit einer frischen Karte
+ * wieder an. Auf dem Handy schieben sich lange Reihen zusammen; die beiden
+ * Aussenkarten bleiben immer ganz zu sehen, an die wird ja angelegt.
  */
-export const MAX_REIHE = 7;
+export const MAX_REIHE = 15;
 export const MIN_PLAYERS = 2;
 export const MAX_PLAYERS = 8;
 
@@ -126,17 +127,28 @@ export function stimmt(tipp, neu, referenz) {
 }
 
 /**
- * Nachschub, wenn der Stapel leer wird: ein frisches Deck ohne die Karten,
- * die gerade auf dem Tisch liegen.
+ * Nachschub, wenn der Stapel leer wird: alles, was gerade nicht auf dem Tisch
+ * liegt, wird gemischt und wieder hingelegt.
+ *
+ * Und wenn wirklich das ganze Deck ausliegt? Dann wird die laengste Reihe
+ * abgeraeumt und eingemischt - genau das, was man am Tisch auch machen wuerde.
+ * Ohne das gaebe es irgendwann keine Karte mehr zum Aufdecken.
  */
-function refill(rows, deck) {
-  if (deck.length > 0) return deck;
+function nachlegen(rows, deck) {
+  if (deck.length > 0) return { rows, deck };
+
   const liegt = new Set(rows.flat().map((c) => c.id));
-  const frisch = shuffle(createDeck().filter((c) => !liegt.has(c.id)));
-  // Notnagel: Liegt wirklich das ganze Deck auf dem Tisch, kommt hier nichts
-  // mehr heraus. Dank MAX_REIHE kann das nicht passieren - aber lieber ein
-  // gemischtes Deck zu viel als eine Karte, die es nicht gibt.
-  return frisch.length ? frisch : shuffle(createDeck());
+  let frisch = shuffle(createDeck().filter((c) => !liegt.has(c.id)));
+  let neu = rows;
+
+  while (frisch.length === 0) {
+    const max = Math.max(...neu.map((r) => r.length));
+    if (max <= 1) return { rows: neu, deck: shuffle(createDeck()) }; // kann nicht sein
+    const idx = neu.findIndex((r) => r.length === max);
+    frisch = shuffle(neu[idx].slice(1));
+    neu = neu.map((r, i) => (i === idx ? [r[0]] : r));
+  }
+  return { rows: neu, deck: frisch };
 }
 
 /**
@@ -149,10 +161,10 @@ function abbauen(g, deck, gespielt) {
   const lang = g.rows.map((r, i) => (r.length === max ? i : -1)).filter((i) => i >= 0);
   const weg = lang.includes(gespielt) ? gespielt : lang[0];
   // Es kann sein, dass der Stapel genau jetzt leer ist - dann erst nachlegen.
-  const voll = refill(g.rows, deck);
+  const voll = nachlegen(g.rows, deck);
   return {
-    rows: g.rows.map((r, i) => (i === weg ? [voll[0]] : r)),
-    deck: voll.slice(1),
+    rows: voll.rows.map((r, i) => (i === weg ? [voll.deck[0]] : r)),
+    deck: voll.deck.slice(1),
     weg,
     laenge: max,
   };
@@ -195,12 +207,12 @@ export function guessBuild(g, playerId, tipp) {
   if (!TIPPS.includes(tipp)) return g;
 
   const { row, side } = g.pick;
-  const deck = refill(g.rows, g.deck);
-  const karte = deck[0];
-  const rest = deck.slice(1);
-  const referenz = randKarte(g, row, side);
+  const nach = nachlegen(g.rows, g.deck);
+  const karte = nach.deck[0];
+  const rest = nach.deck.slice(1);
+  const referenz = randKarte({ ...g, rows: nach.rows }, row, side);
   const richtig = stimmt(tipp, karte, referenz);
-  const laenge = g.rows[row].length;
+  const laenge = nach.rows[row].length;
 
   const letzte = {
     card: karte,
@@ -214,7 +226,7 @@ export function guessBuild(g, playerId, tipp) {
   };
 
   if (richtig) {
-    let rows = g.rows.map((r, i) =>
+    let rows = nach.rows.map((r, i) =>
       i !== row ? r : side === "left" ? [karte, ...r] : [...r, karte]
     );
     let deck = rest;
@@ -223,9 +235,9 @@ export function guessBuild(g, playerId, tipp) {
     // Volle Reihe: abraeumen und mit einer frischen Karte neu anfangen. Der
     // Zaehler des Spielers bleibt stehen - er hat ja richtig getippt.
     if (rows[row].length >= MAX_REIHE) {
-      const nach = refill(rows, deck);
-      rows = rows.map((r, i) => (i === row ? [nach[0]] : r));
-      deck = nach.slice(1);
+      const frei = nachlegen(rows, deck);
+      rows = frei.rows.map((r, i) => (i === row ? [frei.deck[0]] : r));
+      deck = frei.deck.slice(1);
       voll = ` Reihe ${row + 1} ist voll und wird abgeräumt.`;
     }
 
@@ -243,7 +255,7 @@ export function guessBuild(g, playerId, tipp) {
   }
 
   // Falsch: trinken, Karte weg, laengste Reihe abbauen, von vorne.
-  const nachAbbau = abbauen(g, rest, row);
+  const nachAbbau = abbauen({ ...g, rows: nach.rows }, rest, row);
   return {
     ...g,
     rows: nachAbbau.rows,
