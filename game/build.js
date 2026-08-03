@@ -12,6 +12,7 @@
 //     mehrere gleich lang, darf man sich eine aussuchen. Ab der zweiten Karte
 //     darf man ueberall anbauen.
 //   * Fuenf richtige Karten hintereinander - dann ist der Naechste dran.
+//     Jeder muss das zweimal schaffen; danach ist die Runde vorbei.
 //   * Falsch angebaut: Du trinkst so viele Schluecke, wie die Reihe lang war.
 //     Die falsche Karte kommt weg, die laengste Reihe wird abgebaut und auf
 //     eine Karte zurueckgesetzt - und du faengst wieder bei null an. Du bleibst
@@ -26,6 +27,7 @@ import { emptySips } from "./sips.js";
 
 export const REIHEN = 5; // so viele Reihen liegen aus
 export const TREFFER = 5; // so viele richtige Karten hintereinander
+export const DURCHGAENGE = 2; // so oft muss das jeder schaffen
 export const MIN_PLAYERS = 2;
 export const MAX_PLAYERS = 8;
 
@@ -64,11 +66,17 @@ export function initBuild(players, rng, hostId = null) {
     pick: null, // { row, side } - Platz ausgesucht, Tipp fehlt noch
     letzte: null, // { card, gegen, row, side, tipp, ok, sips, weg } fuer die Anzeige
     wartet: false, // nach einem Fehler: Karte anschauen, dann weiter
-    fertig: [], // Spieler, die ihre fuenf schon hatten
+    geschafft: {}, // playerId -> wie oft die fuenf schon standen
     ...emptySips(),
     message: "Such dir eine Reihe aus – die erste Karte muss an die längste.",
   };
 }
+
+/** Wie oft hat dieser Spieler seine fuenf schon zusammengehabt? */
+export const durchgaenge = (g, playerId) => g.geschafft?.[playerId] ?? 0;
+
+/** Ist dieser Spieler durch? */
+export const istFertig = (g, playerId) => durchgaenge(g, playerId) >= DURCHGAENGE;
 
 // ---------------------------------------------------------------------------
 // Hilfen
@@ -241,21 +249,39 @@ export function weiterBuild(g, playerId) {
   };
 }
 
-/** Fuenf geschafft: abhaken und weiterreichen. Waren alle dran, ist Schluss. */
+/**
+ * Fuenf geschafft: abhaken und weiterreichen. Jeder muss zweimal durch, dann
+ * ist Schluss. Weitergegeben wird reihum ab dem naechsten Platz - wer schon
+ * zweimal fertig ist, wird uebersprungen.
+ */
 function naechsterSpieler(g) {
-  const fertig = [...g.fertig, currentPlayer(g).id];
-  const offen = g.players.filter((p) => !fertig.includes(p.id));
+  const wer = currentPlayer(g);
+  const geschafft = { ...(g.geschafft ?? {}), [wer.id]: durchgaenge(g, wer.id) + 1 };
+  const stand = { ...g, geschafft };
 
-  if (offen.length === 0) {
-    return { ...g, fertig, phase: "finished", message: "Der Bus steht. Alle waren dran." };
+  const anzahl = g.players.length;
+  let naechster = -1;
+  for (let i = 1; i <= anzahl; i++) {
+    const platz = (g.turn + i) % anzahl;
+    if (!istFertig(stand, g.players[platz].id)) {
+      naechster = platz;
+      break;
+    }
   }
 
-  const naechster = g.players.findIndex((p) => p.id === offen[0].id);
+  if (naechster === -1) {
+    return { ...stand, phase: "finished", message: "Alle haben es zweimal geschafft." };
+  }
+
+  const jetzt = g.players[naechster];
+  const rest = DURCHGAENGE - durchgaenge(stand, wer.id);
   return {
-    ...g,
-    fertig,
+    ...stand,
     turn: naechster,
-    message: `${currentPlayer(g).name} hat's geschafft. Jetzt ${offen[0].name}.`,
+    message:
+      `${wer.name} hat's geschafft` +
+      (rest > 0 ? ` – noch ${rest} Mal` : " – fertig") +
+      `. Jetzt ${jetzt.name}.`,
   };
 }
 
@@ -263,8 +289,8 @@ function naechsterSpieler(g) {
 // Hilfen fuer die Oberflaeche
 // ---------------------------------------------------------------------------
 
-/** Wie viele Zuege haben die anderen noch vor sich? */
-export const nochOffen = (g) => g.players.filter((p) => !g.fertig.includes(p.id)).length;
+/** Wie viele Spieler sind noch nicht zweimal durch? */
+export const nochOffen = (g) => g.players.filter((p) => !istFertig(g, p.id)).length;
 
 export const istDran = (g, playerId) => g.phase === "play" && currentPlayer(g)?.id === playerId;
 
