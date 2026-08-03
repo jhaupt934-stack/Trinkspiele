@@ -1,0 +1,59 @@
+SCHNIPP-TEST fuer Leberschuss
+=============================
+
+Das ist noch kein Spiel, nur das Schnippsen zum Ausprobieren. Die App wird
+davon NICHT angefasst - die beiden Dateien liegen einfach daneben.
+
+So probierst du es aus:
+
+  1. Beide Dateien hier hochladen nach:
+     https://github.com/jhaupt934-stack/Trinkspiele/upload/main/public
+     (schnipps.html und schnipps.js)
+
+  2. Am Handy aufmachen:
+     https://trinkspiele.org/schnipps.html
+
+Wenn es dir nicht gefaellt, loeschst du die zwei Dateien wieder und alles ist
+wie vorher.
+
+
+Was du machen kannst
+--------------------
+* Einen Korken antippen, zurueckziehen und loslassen - wie eine Schleuder.
+  Je weiter du ziehst, desto fester der Schuss.
+* Es liegen vier Korken, zwei unten (deine) und zwei oben. Die stossen sich
+  gegenseitig weg, genau wie am Tisch.
+* Oben rechts steht, was die Runde gerade wert waere.
+* "Neu" legt alles zurueck.
+
+Die Felder: 1, 2 und 3 Schluecke, und ganz hinten zwischen den Flaschen das
+rote "Deine Mama". Ein Korken zaehlt, sobald er ein Feld beruehrt; liegt er
+auf zweien, zaehlt das bessere.
+
+
+Worauf ich achten wuerde
+------------------------
+* Trifft man ueberhaupt, wo man hinwill?
+* Ist der Kraftbereich brauchbar - oder ist alles entweder zu kurz oder hinten
+  an der Bande?
+* Rutscht der Korken zu weit oder bremst er zu schnell?
+* Fuehlt sich das Zurueckziehen richtig an, oder haettest du lieber ein
+  kurzes Wischen in Schussrichtung?
+
+Alles davon kann ich drehen - Reibung, Hoechsttempo, Bandenverhalten und die
+Groesse der Felder sind einzelne Zahlen in schnipps.js.
+
+
+Zum Stand
+---------
+Die Physik ist so gebaut, dass derselbe Schuss immer gleich ausgeht. Das
+braucht es spaeter fuer online: dann schickt ein Handy nur Winkel und Kraft,
+und alle anderen rechnen dieselbe Bewegung selbst nach - statt dass jemand
+eine Animation verschickt.
+
+Geprueft ist das mit test-schnipps.js:
+  * 1000 zufaellige Schuesse - kein Korken landet je ausserhalb des Feldes,
+    in einer Flasche oder auf einem anderen, und jeder Schuss kommt zur Ruhe
+  * 200 Schuesse zweimal gerechnet, jedes Mal aufs Haar dasselbe Ergebnis
+  * die Wertung inklusive Grenzfaellen und "Mama schlaegt alles"
+  * jedes Feld ist mit der passenden Kraft erreichbar
