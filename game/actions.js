@@ -15,7 +15,14 @@ import {
   MAX_EINSATZ,
   MIN_EINSATZ,
 } from "./race.js";
-import { currentPlayer, erlaubteReihen, guessBuild, pickSpot, TIPPS } from "./build.js";
+import {
+  currentPlayer,
+  erlaubteReihen,
+  guessBuild,
+  pickSpot,
+  weiterBuild,
+  TIPPS,
+} from "./build.js";
 import { canUndo, pendingFor as racePendingFor, undoSip } from "./sips.js";
 import {
   discardCard,
@@ -40,6 +47,15 @@ import {
  * Lokal steht der Verteiler im Feld `fromId` der Aktion.
  */
 export function applyAction(g, action, actorId = null) {
+  const vorher = g;
+  const next = wendeAn(g, action, actorId);
+  // Jeder wirksame Zug zaehlt `rev` hoch. Der Browser rechnet online sofort
+  // voraus; an dieser Nummer erkennt er spaeter, ob eine Nachricht vom Server
+  // schon ueberholt ist.
+  return next === vorher ? vorher : { ...next, rev: (vorher.rev ?? 0) + 1 };
+}
+
+function wendeAn(g, action, actorId) {
   // Rueckgaengig gilt nur innerhalb der laufenden Verteilung. Sobald die
   // Runde weitergeht - aufdecken, weiterblaettern, naechster Spieler - ist
   // Schluss. Ablegen zaehlt nicht dazu, da wird ja nur nachgelegt.
@@ -113,6 +129,8 @@ function applyBuild(g, action, actorId) {
       return pickSpot(g, wer, Number(action.row), action.side);
     case "guessBuild":
       return guessBuild(g, wer, action.tipp);
+    case "weiterBuild":
+      return weiterBuild(g, wer);
     default:
       return g;
   }
@@ -121,6 +139,9 @@ function applyBuild(g, action, actorId) {
 function mayActBuild(g, playerId, action) {
   if (g.phase !== "play") return false;
   if (currentPlayer(g)?.id !== playerId) return false;
+  // Nach einem Fehler steht die Karte gross da - dann geht nur "Nochmal".
+  if (g.wartet) return action.type === "weiterBuild";
+
   switch (action.type) {
     case "pickSpot":
       return (

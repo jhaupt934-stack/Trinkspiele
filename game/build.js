@@ -1,4 +1,4 @@
-// Bus bauen - Hausregeln von Jonas.
+// Drueber Drunter - Hausregeln von Jonas.
 //
 // Aufbau:
 //   Fuenf Karten liegen offen untereinander, jede fuer sich eine Reihe.
@@ -16,6 +16,8 @@
 //     Die falsche Karte kommt weg, die laengste Reihe wird abgebaut und auf
 //     eine Karte zurueckgesetzt - und du faengst wieder bei null an. Du bleibst
 //     also dran, bis du deine fuenf zusammen hast.
+//     Damit man sieht, WAS da gekommen ist, haelt das Spiel dabei an: die Karte
+//     bleibt gross stehen, bis der Spieler auf "Nochmal" tippt (`wartet`).
 //
 // Reines JavaScript ohne Nebenwirkungen, laeuft im Browser wie im Server.
 
@@ -60,7 +62,8 @@ export function initBuild(players, rng, hostId = null) {
     deck: deck.slice(REIHEN),
     streak: 0, // wie viele richtig hintereinander
     pick: null, // { row, side } - Platz ausgesucht, Tipp fehlt noch
-    letzte: null, // { card, row, side, tipp, ok, sips } fuer die Anzeige
+    letzte: null, // { card, gegen, row, side, tipp, ok, sips, weg } fuer die Anzeige
+    wartet: false, // nach einem Fehler: Karte anschauen, dann weiter
     fertig: [], // Spieler, die ihre fuenf schon hatten
     ...emptySips(),
     message: "Such dir eine Reihe aus – die erste Karte muss an die längste.",
@@ -141,7 +144,7 @@ function abbauen(g, deck, gespielt) {
 
 /** Platz aussuchen: welche Reihe, welche Seite. Nochmal tippen hebt es auf. */
 export function pickSpot(g, playerId, row, side) {
-  if (g.phase !== "play") return g;
+  if (g.phase !== "play" || g.wartet) return g;
   if (currentPlayer(g)?.id !== playerId) return g;
   if (!erlaubteReihen(g).includes(row)) return g;
   if (side !== "left" && side !== "right") return g;
@@ -166,7 +169,7 @@ export function pickSpot(g, playerId, row, side) {
  * faengt wieder bei null an - bleibt aber selbst dran.
  */
 export function guessBuild(g, playerId, tipp) {
-  if (g.phase !== "play" || !g.pick) return g;
+  if (g.phase !== "play" || g.wartet || !g.pick) return g;
   const spieler = currentPlayer(g);
   if (spieler?.id !== playerId) return g;
   if (!TIPPS.includes(tipp)) return g;
@@ -179,7 +182,16 @@ export function guessBuild(g, playerId, tipp) {
   const richtig = stimmt(tipp, karte, referenz);
   const laenge = g.rows[row].length;
 
-  const letzte = { card: karte, row, side, tipp, ok: richtig, sips: richtig ? 0 : laenge };
+  const letzte = {
+    card: karte,
+    gegen: referenz,
+    row,
+    side,
+    tipp,
+    ok: richtig,
+    sips: richtig ? 0 : laenge,
+    weg: null,
+  };
 
   if (richtig) {
     const rows = g.rows.map((r, i) =>
@@ -205,12 +217,27 @@ export function guessBuild(g, playerId, tipp) {
     rows: nachAbbau.rows,
     deck: nachAbbau.deck,
     pick: null,
-    letzte,
+    letzte: { ...letzte, weg: nachAbbau.weg },
+    wartet: true,
     streak: 0,
     players: g.players.map((p) => (p.id === playerId ? { ...p, sips: p.sips + laenge } : p)),
     message:
       `${karte.rank} war nicht ${tippName(tipp)} – ${laenge} Schluck${laenge > 1 ? "e" : ""} für ` +
       `${spieler.name}. Reihe ${nachAbbau.weg + 1} wird abgebaut, weiter bei null.`,
+  };
+}
+
+/**
+ * "Nochmal" nach einem Fehler: die aufgedeckte Karte war lang genug zu sehen,
+ * jetzt geht es weiter. Erst danach darf wieder gebaut werden.
+ */
+export function weiterBuild(g, playerId) {
+  if (g.phase !== "play" || !g.wartet) return g;
+  if (currentPlayer(g)?.id !== playerId) return g;
+  return {
+    ...g,
+    wartet: false,
+    message: "Neuer Anlauf – die erste Karte muss an die längste Reihe.",
   };
 }
 
@@ -240,3 +267,6 @@ function naechsterSpieler(g) {
 export const nochOffen = (g) => g.players.filter((p) => !g.fertig.includes(p.id)).length;
 
 export const istDran = (g, playerId) => g.phase === "play" && currentPlayer(g)?.id === playerId;
+
+/** Darf gerade gebaut werden, oder schaut man noch die letzte Karte an? */
+export const darfBauen = (g, playerId) => istDran(g, playerId) && !g.wartet;
