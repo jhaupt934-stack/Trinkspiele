@@ -21,7 +21,7 @@ import {
   activePlayerId,
   playerById,
   canUndo,
-  undoTarget,
+  givenSoFar,
   warteBis,
   MIN_PLAYERS,
   MAX_PLAYERS,
@@ -139,7 +139,7 @@ const regelnHtml = (id) => REGELN[id] ?? "<p>Für dieses Spiel gibt es noch kein
 
 // Steht unten auf der Startseite. Wenn etwas komisch aussieht, sagt diese
 // Nummer sofort, welche Fassung auf dem Handy wirklich laeuft.
-const VERSION = "v22";
+const VERSION = "v23";
 
 const el = document.getElementById("app");
 
@@ -563,36 +563,39 @@ function hostName(g) {
  */
 function handOutPanel(g, fromId) {
   const n = pendingFor(g, fromId);
+  const gegeben = givenSoFar(g, fromId);
   const zurueck = canUndo(g, fromId);
   if (n === 0 && !zurueck) return "";
   const from = playerById(g, fromId);
   const wer = S.mode === "local" ? `${esc(from.name)}: ` : "";
-  const letzter = playerById(g, undoTarget(g, fromId));
 
-  const undoKnopf = zurueck
-    ? `<button class="undo" data-a="undo" data-from="${fromId}">↩︎ ${esc(letzter?.name ?? "Zurück")}</button>`
-    : "";
-
-  const kopf = `
-    <div class="ph">
-      <h3>${n > 0 ? `${wer}${n} Schluck${n > 1 ? "e" : ""} verteilen 🍺` : `${wer}fertig verteilt ✓`}</h3>
-      ${undoKnopf}
-    </div>`;
-
-  if (n === 0) return `<div class="panel">${kopf}</div>`;
+  // Jede Person, der man in dieser Verteilung etwas gegeben hat, bekommt ein
+  // eigenes Minus. So kann man gezielt bei dem zuruecknehmen, bei dem man sich
+  // vertippt hat - nicht nur beim zuletzt Angetippten.
+  const zeilen = sipTargets(g, fromId)
+    .map((p) => {
+      const meins = gegeben[p.id] ?? 0;
+      const plus =
+        `<button class="tile" data-a="sip" data-id="${p.id}" data-from="${fromId}" ${
+          n === 0 ? "disabled" : ""
+        }>${avatar(p)}<span class="nm">${esc(p.name)}</span>` +
+        (meins > 0 ? `<span class="von">+${meins}</span>` : "") +
+        `<span class="badge">${p.sips}</span></button>`;
+      const minus =
+        meins > 0
+          ? `<button class="minus" data-a="undo" data-id="${p.id}" data-from="${fromId}"
+               title="Einen Schluck bei ${esc(p.name)} zurücknehmen">−</button>`
+          : "";
+      return `<div class="tilerow">${plus}${minus}</div>`;
+    })
+    .join("");
 
   return `
-    <div class="panel accent">
-      ${kopf}
-      <div class="tiles">
-        ${sipTargets(g, fromId)
-          .map(
-            (p) =>
-              `<button class="tile" data-a="sip" data-id="${p.id}" data-from="${fromId}">${avatar(p)}` +
-              `<span style="flex:1">${esc(p.name)}</span><span class="badge">${p.sips}</span></button>`
-          )
-          .join("")}
+    <div class="panel ${n > 0 ? "accent" : ""}">
+      <div class="ph">
+        <h3>${n > 0 ? `${wer}${n} Schluck${n > 1 ? "e" : ""} verteilen 🍺` : `${wer}fertig verteilt ✓`}</h3>
       </div>
+      <div class="tiles">${zeilen}</div>
     </div>`;
 }
 
@@ -1518,7 +1521,7 @@ el.addEventListener("click", (e) => {
     case "guess":
       return dispatch({ type: "guess", value: t.dataset.v });
     case "undo":
-      return dispatch({ type: "undoSip", fromId: t.dataset.from });
+      return dispatch({ type: "undoSip", fromId: t.dataset.from, targetId: t.dataset.id });
     case "sip":
       // `fromId` sagt, wessen Schlucke verteilt werden - online prüft der
       // Server das ohnehin nochmal gegen den echten Absender.
