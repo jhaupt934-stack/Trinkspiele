@@ -19,6 +19,7 @@ import {
   distributorIds,
   activePlayerId,
   playerById,
+  warteBis,
   MIN_PLAYERS,
   MAX_PLAYERS,
 } from "/game/engine.js";
@@ -135,9 +136,13 @@ const regelnHtml = (id) => REGELN[id] ?? "<p>Für dieses Spiel gibt es noch kein
 
 // Steht unten auf der Startseite. Wenn etwas komisch aussieht, sagt diese
 // Nummer sofort, welche Fassung auf dem Handy wirklich laeuft.
-const VERSION = "v18";
+const VERSION = "v19";
 
 const el = document.getElementById("app");
+
+// Laeuft in Phase 2 gerade eine Wartezeit, wird einmal pro Sekunde neu
+// gezeichnet - so zaehlt der Knopf herunter und gibt sich selbst frei.
+let tickTimer = null;
 
 // Der Name wird im Browser gespeichert und beim naechsten Oeffnen
 // automatisch wieder benutzt.
@@ -684,17 +689,27 @@ function rowsScreen(g) {
       </div>`;
   }
 
-  // 3. Aufdecken bzw. weiterblaettern - erst wenn alle fertig verteilt haben.
+  // 3. Aufdecken bzw. weiterblaettern. Weiter geht erst, wenn keiner mehr
+  // ablegen kann - oder nach 10 Sekunden. Dann ist jeder selbst schuld.
+  const restMs = Math.max(0, warteBis(g) - Date.now());
+  const sek = Math.ceil(restMs / 1000);
+  const letzte = g.cursor + 1 >= g.order.length;
+  const blockiert = restMs > 0 || (letzte && offen);
+
   let steuerung;
   if (!g.revealedNow) {
     steuerung = binHost
-      ? `<button class="wide" data-a="reveal" ${offen ? "disabled" : ""}>Karte aufdecken (${
-          g.cursor + 1
-        } von 8)</button>`
+      ? `<button class="wide" data-a="reveal">Karte aufdecken (${g.cursor + 1} von 8)</button>`
       : `<p class="banner">${esc(hostName(g))} deckt die nächste Karte auf.</p>`;
   } else {
     steuerung = binHost
-      ? `<button class="secondary wide" data-a="next" ${offen ? "disabled" : ""}>Weiter</button>`
+      ? `<button class="secondary wide" data-a="next" ${blockiert ? "disabled" : ""}>${
+          restMs > 0
+            ? `Weiter in ${sek}s`
+            : letzte && offen
+            ? "Warten: Schlücke noch offen"
+            : "Weiter"
+        }</button>`
       : `<p class="banner">${esc(hostName(g))} blättert weiter.</p>`;
   }
 
@@ -1228,6 +1243,12 @@ function render() {
     html += `<div class="offline-bar">Keine Verbindung – versuche neu zu verbinden…</div>`;
   }
   el.innerHTML = html;
+
+  clearTimeout(tickTimer);
+  if (S.screen === "game" && S.game?.game !== "race" && S.game?.phase === "rows") {
+    const rest = warteBis(S.game) - Date.now();
+    if (rest > 0) tickTimer = setTimeout(render, Math.min(1000, rest + 60));
+  }
 
   const focusMe = document.getElementById("nameInput") ?? document.getElementById("codeInput");
   if (S.screen === "name") focusMe?.focus();
