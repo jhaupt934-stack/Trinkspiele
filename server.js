@@ -290,12 +290,22 @@ io.on("connection", (socket) => {
     const { lobby, playerId } = found;
 
     const { game, rejected } = handleAction(lobby.game, playerId, action);
-    if (rejected) return socket.emit("errorMsg", rejected);
-    if (game === lobby.game) return; // Aktion war wirkungslos
+
+    // Der Browser rechnet jede Aktion sofort selbst mit, damit ein Tipp nicht
+    // erst nach der Netzrunde sichtbar wird. Geht sie hier nicht durch oder
+    // bewirkt sie nichts, muss er den echten Stand zurueckbekommen - sonst
+    // bleibt seine Vorhersage stehen.
+    if (rejected) {
+      socket.emit("errorMsg", rejected);
+      return socket.emit("game", lobby.game);
+    }
+    if (game === lobby.game) return socket.emit("game", lobby.game);
 
     lobby.game = game;
     lobby.lastActivity = Date.now();
-    io.to(lobby.code).emit("game", game);
+    // Wer die Aktion ausgeloest hat, steht mit dabei: Dieser Spieler hat sie
+    // schon selbst gerechnet und darf eine ueberholte Nachricht wegwerfen.
+    io.to(lobby.code).emit("game", game, playerId);
   });
 
   socket.on("leaveLobby", () => {
