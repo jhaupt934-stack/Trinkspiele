@@ -85,7 +85,6 @@ button.accent {
 }
 button.ghost { background: none; color: var(--muted); font-weight: 600; box-shadow: none; }
 button.small { font-size: 15px; padding: 12px 16px; border-radius: 13px; }
-button.wide.small { margin-top: 10px; }
 button.wide { width: 100%; }
 
 /* Grosse Auswahl-Kacheln, z.B. zum Schlucke verteilen */
@@ -172,7 +171,20 @@ input.code {
   border-radius: 20px; padding: 16px; margin: 14px 0;
 }
 .panel.accent { border-color: var(--mint); }
-.panel h3 { margin: 0 0 4px; font-size: 17px; font-weight: 800; }
+.panel h3 { margin: 0; font-size: 17px; font-weight: 800; }
+
+/* Kopfzeile des Verteil-Felds: Text links, Zurueck-Knopf rechts.
+   Oben, damit er nie dort landet, wo gerade noch eine Namenskachel war. */
+.ph { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.ph h3 { flex: 1; min-width: 0; }
+button.undo {
+  flex: none; padding: 9px 14px; border-radius: 12px;
+  font-size: 14px; font-weight: 800;
+  background: var(--surface-3); color: var(--text);
+  border: 1.5px solid var(--border-strong); box-shadow: none;
+  max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+button.undo:active { border-color: var(--danger); }
 .panel .hint { color: var(--muted); font-size: 13px; margin: 0 0 12px; }
 
 .banner {

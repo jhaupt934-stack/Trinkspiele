@@ -12,6 +12,7 @@ import {
   ROUND_TITLES,
   currentRowCard,
   playersWithMatch,
+  matchCount,
   allowedPyramidIndices,
   sipTargets,
   pendingFor,
@@ -20,6 +21,7 @@ import {
   activePlayerId,
   playerById,
   canUndo,
+  undoTarget,
   warteBis,
   MIN_PLAYERS,
   MAX_PLAYERS,
@@ -137,7 +139,7 @@ const regelnHtml = (id) => REGELN[id] ?? "<p>Für dieses Spiel gibt es noch kein
 
 // Steht unten auf der Startseite. Wenn etwas komisch aussieht, sagt diese
 // Nummer sofort, welche Fassung auf dem Handy wirklich laeuft.
-const VERSION = "v20";
+const VERSION = "v22";
 
 const el = document.getElementById("app");
 
@@ -552,25 +554,36 @@ function hostName(g) {
   return g.players.find((p) => p.id === g.hostId)?.name ?? "Der Host";
 }
 
-/** Das Verteil-Feld fuer einen bestimmten Spieler. */
+/**
+ * Das Verteil-Feld fuer einen bestimmten Spieler.
+ *
+ * Der Zurueck-Knopf sitzt bewusst OBEN in der Kopfzeile. Unten stand er
+ * genau dort, wo eben noch eine Namenskachel war - wer schnell tippt, hat
+ * damit versehentlich zurueckgenommen.
+ */
 function handOutPanel(g, fromId) {
   const n = pendingFor(g, fromId);
   const zurueck = canUndo(g, fromId);
   if (n === 0 && !zurueck) return "";
   const from = playerById(g, fromId);
   const wer = S.mode === "local" ? `${esc(from.name)}: ` : "";
+  const letzter = playerById(g, undoTarget(g, fromId));
 
-  // Zurueck-Knopf fuer den Fall, dass man danebengetippt hat.
-  const undoZeile = zurueck
-    ? `<button class="secondary wide small" data-a="undo" data-from="${fromId}">
-         ↩︎ Zurück: ${esc(playerById(g, g.undo.toId)?.name ?? "")}</button>`
+  const undoKnopf = zurueck
+    ? `<button class="undo" data-a="undo" data-from="${fromId}">↩︎ ${esc(letzter?.name ?? "Zurück")}</button>`
     : "";
 
-  if (n === 0) return `<div class="panel">${undoZeile}</div>`;
+  const kopf = `
+    <div class="ph">
+      <h3>${n > 0 ? `${wer}${n} Schluck${n > 1 ? "e" : ""} verteilen 🍺` : `${wer}fertig verteilt ✓`}</h3>
+      ${undoKnopf}
+    </div>`;
+
+  if (n === 0) return `<div class="panel">${kopf}</div>`;
 
   return `
     <div class="panel accent">
-      <h3>${wer}${n} Schluck${n > 1 ? "e" : ""} verteilen 🍺</h3>
+      ${kopf}
       <div class="tiles">
         ${sipTargets(g, fromId)
           .map(
@@ -580,7 +593,6 @@ function handOutPanel(g, fromId) {
           )
           .join("")}
       </div>
-      ${undoZeile}
     </div>`;
 }
 
@@ -690,11 +702,14 @@ function rowsScreen(g) {
     } Schluck${cur?.card.value > 1 ? "e" : ""}</h3>
         ${matches.length === 0 ? `<p class="hint" style="margin:0">Passt bei niemandem.</p>` : ""}
         ${meine
-          .map(
-            (p) =>
+          .map((p) => {
+            const n = matchCount(g, p.id);
+            return (
               `<button class="accent wide" data-a="discard" data-id="${p.id}" style="margin-bottom:8px">` +
-              `${S.mode === "local" ? esc(p.name) + ": " : ""}Karte ablegen</button>`
-          )
+              `${S.mode === "local" ? esc(p.name) + ": " : ""}` +
+              `${n > 1 ? `${n} Karten ablegen (${n * cur.card.value} 🍺)` : "Karte ablegen"}</button>`
+            );
+          })
           .join("")}
         ${
           fremde.length
@@ -892,7 +907,7 @@ function pyramidScreen(g) {
             ? "Such dir unten eine der fünf Karten aus."
             : "Nur die markierten Karten grenzen an deine letzte an."
         }</p>`
-      : `<p class="banner">${esc(driver.name)} fährt Bus. Zuschauen und mittrinken.</p>`;
+      : `<p class="banner">${esc(driver.name)} fährt Bus – trinken muss nur er.</p>`;
   }
 
   return `
