@@ -36,6 +36,17 @@ import {
   MAX_EINSATZ,
   HORSE_ORDER,
 } from "/game/race.js";
+import {
+  initBuild,
+  currentPlayer,
+  erlaubteReihen,
+  randKarte,
+  longestLength,
+  seiteName,
+  tippName,
+  REIHEN,
+  TREFFER,
+} from "/game/build.js";
 import { applyAction, mayAct } from "/game/actions.js";
 import { isRed, suitSymbol, suitName } from "/game/deck.js";
 
@@ -48,6 +59,7 @@ import { isRed, suitSymbol, suitName } from "/game/deck.js";
 const SPIELE = [
   { id: "bus", emoji: "🚌", name: "Busfahren", kurz: "ca. 15 Min." },
   { id: "race", emoji: "🐎", name: "Pferderennen", kurz: "ca. 5 Min." },
+  { id: "build", emoji: "🛠️", name: "Bus bauen", kurz: "ca. 10 Min." },
 ];
 const spielName = (id) => SPIELE.find((s) => s.id === id)?.name ?? "";
 const spielEmoji = (id) => SPIELE.find((s) => s.id === id)?.emoji ?? "🃏";
@@ -134,12 +146,37 @@ const REGELN = {
     mehrere richtig gesetzt, verteilen sie gleichzeitig.</p>
     <p>Alle anderen haben ihren Einsatz umsonst getrunken. Hoch setzen lohnt
     sich also nur, wenn man auch richtig liegt.</p>`,
+
+  build: `
+    <h3>Worum geht's?</h3>
+    <p>${REIHEN} Karten liegen offen aus, jede für sich eine Reihe. Du baust
+    daran weiter – und musst <strong>${TREFFER} Mal hintereinander</strong>
+    richtig liegen, dann ist der Nächste dran.</p>
+
+    <h3>Dein Zug</h3>
+    <p>Such dir eine Reihe aus und eine Seite: <strong>links</strong> oder
+    <strong>rechts</strong> von der Reihe. Dann sagst du
+    <strong>höher</strong>, <strong>tiefer</strong> oder <strong>gleich</strong> –
+    verglichen wird mit der äußeren Karte auf genau dieser Seite.</p>
+    <p>Die <strong>erste</strong> Karte eines Anlaufs muss immer an die
+    <strong>längste</strong> Reihe. Sind mehrere gleich lang, darfst du dir eine
+    aussuchen. Ab der zweiten Karte darfst du überall anbauen.</p>
+
+    <h3>Wenn du falsch liegst</h3>
+    <p>Du trinkst so viele Schlücke, wie die Reihe lang war – die neue Karte
+    zählt nicht mit. Sie kommt weg, die längste Reihe wird abgebaut und auf eine
+    Karte zurückgesetzt.</p>
+    <p>Dein Zähler geht auf null, aber du bleibst dran. Du kommst erst weg, wenn
+    du deine ${TREFFER} zusammen hast.</p>
+
+    <h3>Am Ende</h3>
+    <p>Wenn jeder einmal gebaut hat, steht der Bus und die Runde ist vorbei.</p>`,
 };
 const regelnHtml = (id) => REGELN[id] ?? "<p>Für dieses Spiel gibt es noch keine Erklärung.</p>";
 
 // Steht unten auf der Startseite. Wenn etwas komisch aussieht, sagt diese
 // Nummer sofort, welche Fassung auf dem Handy wirklich laeuft.
-const VERSION = "v23";
+const VERSION = "v24";
 
 const el = document.getElementById("app");
 
@@ -335,10 +372,18 @@ function dispatch(action) {
   render();
 }
 
+/** Ein frisches Spiel derselben Sorte - lokal wird hier selbst gerechnet. */
+function neuesSpiel(id, players) {
+  if (id === "race") return initRace(players);
+  if (id === "build") return initBuild(players);
+  return initGame(players);
+}
+
 /** Wer sitzt unten am Tisch? Online ich, lokal wer gerade dran ist. */
 function meId() {
   if (S.mode === "online") return S.myId;
   if (!S.game) return null;
+  if (S.game.game === "build") return currentPlayer(S.game)?.id ?? S.game.players[0].id;
   return activePlayerId(S.game) ?? S.game.players[0].id;
 }
 
@@ -862,12 +907,15 @@ function tiebreakScreen(g) {
 }
 
 function pyramidScreen(g) {
-  const me = g.players.find((p) => p.id === meId());
-  const others = g.players.filter((p) => p.id !== meId());
   const driver = g.players.find((p) => p.id === g.driverId);
+  // Unter der Pyramide steht der, um den es hier geht: der Busfahrer.
+  // Nur wer selbst faehrt, sieht dort sich selbst.
+  const iDriveNow = g.driverId === meId() || S.mode === "local";
+  const me = iDriveNow ? g.players.find((p) => p.id === meId()) : driver;
+  const others = g.players.filter((p) => p.id !== me?.id);
   const level = g.path.length;
   const allowed = allowedPyramidIndices(g);
-  const iDrive = g.driverId === meId() || S.mode === "local";
+  const iDrive = iDriveNow;
 
   const pyramid = g.rows
     .map((row, r) => ({ row, r }))
@@ -923,7 +971,7 @@ function pyramidScreen(g) {
     ${g.message ? `<p class="msg">${esc(g.message)}</p>` : ""}
     ${seatsHtml(others, driver.id)}
     <div class="felt">${pyramid}</div>
-    ${meBlock(me, driver.id)}
+    ${meBlock(me, driver.id, iDrive ? "du bist dran" : "fährt Bus 🚌")}
     <div class="actions">${footer}</div>`;
 }
 
@@ -1193,13 +1241,112 @@ function raceEndScreen(g) {
     <div class="actions">${footer}</div>`;
 }
 
+// ---------------------------------------------------------------------------
+// Bus bauen
+// ---------------------------------------------------------------------------
+
+/**
+ * Eine Reihe: links ein Anbau-Feld, dann die Karten, rechts noch eins.
+ * Angetippt wird der Platz, nicht die Karte - deshalb sind die Felder gross
+ * genug zum Treffen.
+ */
+function buildRow(g, i, darfIch) {
+  const erlaubt = erlaubteReihen(g).includes(i);
+  const karten = g.rows[i];
+  const gewaehlt = (seite) => g.pick?.row === i && g.pick?.side === seite;
+
+  const slot = (seite) => {
+    const an = gewaehlt(seite);
+    const aktiv = darfIch && erlaubt;
+    return (
+      `<button class="slot ${an ? "on" : ""}" ${aktiv ? "" : "disabled"} ` +
+      `data-a="spot" data-row="${i}" data-side="${seite}" ` +
+      `aria-label="${seiteName(seite)} an Reihe ${i + 1}">${an ? "▾" : "+"}</button>`
+    );
+  };
+
+  const neu = g.letzte && g.letzte.ok && g.letzte.row === i ? g.letzte.card.id : null;
+  const cards = karten
+    .map((c) => cardHtml(c, "t", { style: c.id === neu ? "outline:2px solid var(--mint)" : "" }))
+    .join("");
+
+  return (
+    `<div class="brow ${erlaubt ? "" : "sperr"} ${g.pick?.row === i ? "sel" : ""}">` +
+    `<span class="nr">${i + 1}</span>${slot("left")}` +
+    `<div class="bcards">${cards}</div>${slot("right")}</div>`
+  );
+}
+
+/** Schmale Leiste mit allen Spielern und ihrem Schluck-Stand. */
+function sipStrip(g, dranId) {
+  return (
+    `<div class="strip">` +
+    g.players
+      .map(
+        (p) =>
+          `<span class="sp ${p.id === dranId ? "on" : ""} ${
+            g.fertig?.includes(p.id) ? "done" : ""
+          }">${avatar(p, true)}<span>${esc(p.name)}</span><b>${p.sips}</b></span>`
+      )
+      .join("") +
+    `</div>`
+  );
+}
+
+function buildScreen(g) {
+  const dran = currentPlayer(g);
+  const ichBinDran = S.mode === "local" || dran?.id === S.myId;
+  const nurLaengste = g.streak === 0;
+
+  const punkte = Array.from({ length: TREFFER }, (_, i) =>
+    `<span class="dot ${i < g.streak ? "on" : ""}"></span>`
+  ).join("");
+
+  const reihen = g.rows.map((_, i) => buildRow(g, i, ichBinDran)).join("");
+
+  // Was steht unten? Erst Platz aussuchen, dann tippen.
+  let footer;
+  if (!ichBinDran) {
+    footer = `<p class="banner">${esc(dran?.name ?? "")} baut gerade.</p>`;
+  } else if (!g.pick) {
+    footer = `<p class="banner">${
+      nurLaengste
+        ? `Erste Karte: nur an die längste Reihe (${longestLength(g)} Karten).`
+        : "Tipp auf ein + – links oder rechts von einer Reihe."
+    }</p>`;
+  } else {
+    const ref = randKarte(g, g.pick.row, g.pick.side);
+    footer =
+      `<div class="panel accent"><div class="ph"><h3>${seiteName(g.pick.side)} an Reihe ` +
+      `${g.pick.row + 1} – gegen ${ref.rank}${suitSymbol(ref.suit)}</h3></div>` +
+      `<div class="row">` +
+      `<button data-a="tipp" data-t="lower">↓ tiefer</button>` +
+      `<button data-a="tipp" data-t="equal">= gleich</button>` +
+      `<button data-a="tipp" data-t="higher">↑ höher</button>` +
+      `</div></div>`;
+  }
+
+  return `
+    ${turnBar(
+      dran,
+      ichBinDran ? "Du baust 🛠️" : `${esc(dran?.name ?? "")} baut 🛠️`,
+      ichBinDran,
+      `${g.streak}/${TREFFER}`
+    )}
+    <div class="streak">${punkte}</div>
+    ${g.message ? `<p class="msg">${esc(g.message)}</p>` : ""}
+    ${sipStrip(g, dran?.id)}
+    <div class="felt build">${reihen}</div>
+    <div class="actions">${footer}</div>`;
+}
+
 /**
  * Was nach einer fertigen Runde unten steht. Online bleibt die Lobby mit
  * demselben Code bestehen - ihr müsst euch nicht neu zusammenfinden, weder für
  * noch eine Runde noch für ein anderes Spiel.
  */
 function resultFooter(g) {
-  const name = SPIELE.find((s) => s.id === (g.game === "race" ? "race" : "bus"))?.name ?? "";
+  const name = SPIELE.find((s) => s.id === (g.game ?? "bus"))?.name ?? "";
   if (S.mode !== "online") {
     return `<button class="wide" data-a="localAgain">Nochmal spielen 🎉</button>
             <button class="ghost wide" data-a="home">Zurück zum Start</button>`;
@@ -1239,14 +1386,14 @@ function resultScreen(g) {
     <div class="actions">${footer}</div>`;
 }
 
-function meBlock(me, active) {
+function meBlock(me, active, zusatz = "du bist dran") {
   if (!me) return "";
   const dran = new Set([active].flat().filter(Boolean)).has(me.id);
   return `
     <div class="me">
       <div class="head">
         ${avatar(me)}
-        <span class="name">${esc(me.name)}${dran ? " – du bist dran" : ""}</span>
+        <span class="name">${esc(me.name)}${dran ? ` – ${zusatz}` : ""}</span>
         <span class="badge">${me.sips}</span>
       </div>
       ${handHtml(me)}
@@ -1269,6 +1416,9 @@ function render() {
     if (g.phase === "bets") html = betScreen(g);
     else if (g.phase === "race") html = raceScreen(g);
     else html = raceEndScreen(g);
+  } else if (S.game?.game === "build") {
+    const g = S.game;
+    html = g.phase === "play" ? buildScreen(g) : resultScreen(g);
   } else if (S.game) {
     const g = S.game;
     if (g.phase === "guess") html = guessScreen(g);
@@ -1431,7 +1581,7 @@ el.addEventListener("click", (e) => {
     case "start": {
       const players = S.names.map((n, i) => ({ id: "p" + i, name: n.trim() || `Spieler ${i + 1}` }));
       // ohne hostId: am selben Gerät darf jeder aufdecken
-      S.game = S.spiel === "race" ? initRace(players) : initGame(players);
+      S.game = neuesSpiel(S.spiel, players);
       S.bet = { suit: null, amount: 3 };
       S.screen = "game";
       break;
@@ -1480,7 +1630,7 @@ el.addEventListener("click", (e) => {
 
     case "localAgain": {
       const players = S.game.players.map((p) => ({ id: p.id, name: p.name }));
-      S.game = S.game.game === "race" ? initRace(players) : initGame(players);
+      S.game = neuesSpiel(S.game.game, players);
       S.bet = { suit: null, amount: 3 };
       S.screen = "game";
       break;
@@ -1520,6 +1670,17 @@ el.addEventListener("click", (e) => {
     // Spielzüge
     case "guess":
       return dispatch({ type: "guess", value: t.dataset.v });
+    // `playerId` braucht nur das lokale Spiel - online setzt der Server den
+    // Absender selbst, damit niemand fuer einen anderen bauen kann.
+    case "spot":
+      return dispatch({
+        type: "pickSpot",
+        playerId: meId(),
+        row: Number(t.dataset.row),
+        side: t.dataset.side,
+      });
+    case "tipp":
+      return dispatch({ type: "guessBuild", playerId: meId(), tipp: t.dataset.t });
     case "undo":
       return dispatch({ type: "undoSip", fromId: t.dataset.from, targetId: t.dataset.id });
     case "sip":

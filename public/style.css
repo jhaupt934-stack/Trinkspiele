@@ -603,3 +603,59 @@ button.step {
   background: var(--danger); color: #fff;
   text-align: center; padding: 11px; font-size: 14px; font-weight: 800;
 }
+
+/* --- Bus bauen ---
+   Fuenf Reihen untereinander. Angetippt wird der Platz links oder rechts
+   neben der Reihe, nicht die Karte - die Felder sind extra gross genug. */
+.felt.build { padding: 10px 8px; }
+.brow {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 2px; border-radius: 12px;
+}
+.brow + .brow { margin-top: 4px; }
+.brow.sel { background: rgba(46, 230, 197, .12); }
+.brow .nr {
+  flex: none; width: 15px; text-align: center;
+  font-size: 12px; font-weight: 800; color: #8FE8D0;
+}
+.brow .bcards {
+  flex: 1; min-width: 0; display: flex; gap: 4px;
+  overflow-x: auto; overflow-y: hidden; padding: 1px 0;
+}
+.brow .bcards::-webkit-scrollbar { display: none; }
+.brow .bcards .card { flex: none; }
+
+/* Das Anbau-Feld. Hoehe wie eine Karte, damit die Zeile ruhig bleibt. */
+.felt.build .brow .slot {
+  flex: none; display: flex; align-items: center; justify-content: center;
+  width: 30px; height: 53px; padding: 0;
+  font-size: 20px; font-weight: 800; line-height: 1;
+  color: #9FF0DC; background: rgba(255, 255, 255, .07);
+  border: 1.5px dashed rgba(255, 255, 255, .35); border-radius: 9px;
+  box-shadow: none;
+}
+.felt.build .brow .slot.on {
+  color: #04261F; background: var(--mint); border-style: solid; border-color: var(--mint);
+}
+.felt.build .brow .slot:disabled { opacity: .22; }
+.brow.sperr .bcards { opacity: .5; }
+
+/* Fortschritt: fuenf Punkte, gefuellt was schon sitzt. */
+.streak { display: flex; justify-content: center; gap: 8px; margin: 8px 0 2px; }
+.streak .dot {
+  width: 13px; height: 13px; border-radius: 50%;
+  background: var(--surface-3); border: 1.5px solid var(--border-strong);
+}
+.streak .dot.on { background: var(--mint); border-color: var(--mint); }
+
+/* Schmale Spielerleiste - Busbauen braucht keine Handkarten. */
+.strip { display: flex; flex-wrap: wrap; gap: 7px; margin: 8px 0 2px; }
+.strip .sp {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 13px; font-weight: 700;
+  background: var(--surface); border: 1.5px solid var(--border);
+  border-radius: 12px; padding: 4px 9px 4px 5px;
+}
+.strip .sp.on { border-color: var(--mint); background: var(--surface-2); }
+.strip .sp.done { opacity: .5; }
+.strip .sp b { color: var(--gold); }
