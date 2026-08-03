@@ -131,7 +131,7 @@ const regelnHtml = (id) => REGELN[id] ?? "<p>Für dieses Spiel gibt es noch kein
 
 // Steht unten auf der Startseite. Wenn etwas komisch aussieht, sagt diese
 // Nummer sofort, welche Fassung auf dem Handy wirklich laeuft.
-const VERSION = "v14";
+const VERSION = "v15";
 
 const el = document.getElementById("app");
 
@@ -274,7 +274,7 @@ function seatsHtml(players, active) {
 }
 
 /** Kurze Einblendung oben. Mehrere stapeln sich untereinander. */
-function toast(html) {
+function toast(html, art = "") {
   let box = document.querySelector(".toasts");
   if (!box) {
     box = document.createElement("div");
@@ -282,7 +282,7 @@ function toast(html) {
     document.body.appendChild(box);
   }
   const t = document.createElement("div");
-  t.className = "toast";
+  t.className = art ? `toast ${art}` : "toast";
   t.innerHTML = html;
   box.appendChild(t);
   while (box.children.length > 4) box.firstChild.remove();
@@ -1226,8 +1226,11 @@ function connect() {
     S.screen = "lobby";
     render();
   });
+  // Im Spiel gibt es keine Stelle fuer Fehlertexte - frueher passierte beim
+  // Ablehnen eines Zuges einfach gar nichts. Jetzt kommt eine Einblendung.
   socket.on("errorMsg", (msg) => {
     S.error = msg;
+    if (S.screen === "game") toast(`<span>⚠️ ${esc(msg)}</span>`, "bad");
     render();
   });
   return socket;
