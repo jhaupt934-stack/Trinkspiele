@@ -183,7 +183,7 @@ const regelnHtml = (id) => REGELN[id] ?? "<p>Für dieses Spiel gibt es noch kein
 
 // Steht unten auf der Startseite. Wenn etwas komisch aussieht, sagt diese
 // Nummer sofort, welche Fassung auf dem Handy wirklich laeuft.
-const VERSION = "v29";
+const VERSION = "v30";
 
 const el = document.getElementById("app");
 
@@ -1290,22 +1290,39 @@ function raceEndScreen(g) {
  * Angetippt wird der Platz, nicht die Karte - deshalb sind die Felder gross
  * genug zum Treffen.
  */
+// So viel Platz bleibt einer Reihe auf dem kleinsten ueblichen Handy
+// (iPhone SE, 320 px): abzueglich Seitenrand, Filzrand, Reihenrand, den
+// beiden Anbau-Feldern und den Luecken daneben.
+const REIHE_PX = 320 - 2 * 18 - 2 * 8 - 2 * 5 - 2 * 38 - 2 * 6;
+const KARTE_BREIT = { s: 56, t: 38 };
+const KARTE_LUECKE = 5;
+
 /**
- * Wie gross duerfen die Karten sein? Je laenger die laengste Reihe, desto
- * kleiner - sonst laeuft die Reihe auf einem kleinen Handy aus dem Bild.
- * Alle Reihen benutzen dieselbe Groesse, sonst sieht es unruhig aus.
- * Die Zahlen haengen an .card.s / .card.t und .eng in style.css;
- * test-extrem.js rechnet nach, dass es passt.
+ * Wie gross duerfen die Karten sein? Ab drei Karten die kleinen, sonst passt
+ * schon eine kurze Reihe nicht mehr. Alle Reihen benutzen dieselbe Groesse,
+ * sonst sieht es unruhig aus.
  */
-function kartenGroesse(lang) {
-  if (lang <= 2) return { size: "s", eng: false };
-  if (lang <= 4) return { size: "t", eng: false };
-  return { size: "t", eng: true };
+const kartenGroesse = (lang) => (lang <= 2 ? "s" : "t");
+
+/**
+ * Wie weit ruecken die Karten einer Reihe auseinander? Solange Platz ist, mit
+ * normaler Luecke. Danach schieben sie sich zusammen - und je laenger die
+ * Reihe, desto mehr. Die beiden Aussenkarten liegen oben drauf und bleiben
+ * dadurch ganz zu sehen; gestapelt wird nur in der Mitte.
+ * test-ui.js rechnet an der fertigen Reihe nach, dass es aufs Handy passt.
+ */
+function schrittWeite(n, size) {
+  const w = KARTE_BREIT[size];
+  if (n <= 1) return w;
+  if (n * w + (n - 1) * KARTE_LUECKE <= REIHE_PX) return w + KARTE_LUECKE;
+  return Math.max(9, Math.floor((REIHE_PX - w) / (n - 1)));
 }
 
-function buildRow(g, i, darfIch, groesse) {
+function buildRow(g, i, darfIch, size) {
   const erlaubt = erlaubteReihen(g).includes(i);
   const karten = g.rows[i];
+  const schritt = schrittWeite(karten.length, size);
+  const versatz = schritt - KARTE_BREIT[size]; // negativ, sobald es eng wird
   const gewaehlt = (seite) => g.pick?.row === i && g.pick?.side === seite;
 
   const slot = (seite) => {
@@ -1324,10 +1341,15 @@ function buildRow(g, i, darfIch, groesse) {
   // gerade getippt wird, deutlich einrahmen - sonst raet man ins Blaue.
   const neu = g.letzte?.ok && g.letzte.row === i ? g.letzte.card.id : null;
   const ref = g.pick?.row === i ? randKarte(g, i, g.pick.side)?.id : null;
+  // Die Stapelung hat ihren tiefsten Punkt in der Mitte: nach aussen hin liegt
+  // jede Karte ueber ihrer Nachbarin. Dadurch sind die beiden Aussenkarten
+  // immer ganz zu sehen, egal wie lang die Reihe ist - an die wird angelegt.
   const cards = karten
-    .map((c) =>
-      cardHtml(c, "s", {
+    .map((c, k) =>
+      cardHtml(c, size, {
         style: [
+          k > 0 ? `margin-left:${versatz}px` : "",
+          `z-index:${20 - Math.min(k, karten.length - 1 - k)}`,
           c.id === neu ? "box-shadow:0 0 0 3px var(--mint)" : "",
           c.id === ref ? "box-shadow:0 0 0 3px var(--gold)" : "",
         ]
@@ -1403,8 +1425,8 @@ function buildScreen(g) {
     (_, i) => `<span class="dot ${i < g.streak ? "on" : ""}"></span>`
   ).join("");
 
-  const groesse = kartenGroesse(longestLength(g));
-  const reihen = g.rows.map((_, i) => buildRow(g, i, darfIch, groesse)).join("");
+  const size = kartenGroesse(longestLength(g));
+  const reihen = g.rows.map((_, i) => buildRow(g, i, darfIch, size)).join("");
 
   // Kopfzeile: wer baut, wie weit, und die zuletzt aufgedeckte Karte.
   const kopf = `
@@ -1451,7 +1473,7 @@ function buildScreen(g) {
     ${kopf}
     ${g.message ? `<p class="msg">${esc(g.message)}</p>` : ""}
     ${sipStrip(g, dran?.id)}
-    <div class="felt build ${groesse.eng ? "eng" : ""}">${reihen}</div>
+    <div class="felt build">${reihen}</div>
     <div class="actions">${footer}</div>`;
 }
 
