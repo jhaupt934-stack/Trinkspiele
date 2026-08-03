@@ -29,6 +29,7 @@ import {
   revealRow,
   tiebreakDraw,
   tiebreakFlip,
+  tiebreakGo,
 } from "./engine.js";
 
 /**
@@ -54,6 +55,8 @@ export function applyAction(g, action, actorId = null) {
       return tiebreakFlip(g);
     case "tiebreakDraw":
       return tiebreakDraw(g);
+    case "tiebreakGo":
+      return tiebreakGo(g);
     case "pickPyramid":
       return pickPyramid(g, action.index);
     case "restartPyramid":
@@ -135,7 +138,9 @@ export function mayAct(g, playerId, action) {
     // Das Stechen steuert ebenfalls der Host.
     case "tiebreakFlip":
     case "tiebreakDraw":
-      return g.phase === "tiebreak" && (!g.hostId || g.hostId === playerId);
+      return g.phase === "tiebreak" && !g.tieResult && (!g.hostId || g.hostId === playerId);
+    case "tiebreakGo":
+      return g.phase === "tiebreak" && !!g.tieResult && (!g.hostId || g.hostId === playerId);
 
     // Ablegen darf nur, wem die Karte gehoert - auch waehrend andere verteilen.
     case "discard":

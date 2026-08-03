@@ -368,6 +368,7 @@ function decideDriver(g) {
     tieMode: tieCanBeResolvedByFlip(g, candidates) ? "flip" : "draw",
     flipped: null,
     drawn: null,
+    tieResult: null,
     message: `Gleichstand mit ${most} Karten: ${names}. Wer zuerst ablegen kann, ist raus.`,
   };
 }
@@ -379,9 +380,24 @@ function tieCanBeResolvedByFlip(g, candidates) {
   return refill(g, 1).some((c) => ranks.has(c.rank));
 }
 
+/**
+ * Steht der Fahrer fest, springen wir NICHT sofort in die Pyramide, sondern
+ * zeigen erst das Ergebnis. Sonst blitzt die entscheidende Karte nur kurz auf
+ * und keiner sieht, warum es vorbei ist.
+ */
+function tiebreakErgebnis(g, driverId, escaped, text) {
+  return { ...g, candidates: [driverId], tieResult: { driverId, escaped }, message: text };
+}
+
+/** Ergebnis bestaetigt - jetzt geht es in die Pyramide. */
+export function tiebreakGo(g) {
+  if (g.phase !== "tiebreak" || !g.tieResult) return g;
+  return startPyramid({ ...g, tieResult: null }, g.tieResult.driverId, g.message);
+}
+
 /** Eine Karte aufdecken: Wer sie ablegen kann, muss nicht fahren. */
 export function tiebreakFlip(g) {
-  if (g.phase !== "tiebreak" || g.tieMode !== "flip") return g;
+  if (g.phase !== "tiebreak" || g.tieMode !== "flip" || g.tieResult) return g;
 
   const deck = refill(g, 1);
   const card = deck[0];
@@ -397,8 +413,14 @@ export function tiebreakFlip(g) {
   const base = { ...g, deck: rest, flipped: card };
 
   if (remaining.length === 1) {
-    const name = playerById(g, remaining[0]).name;
-    return startPyramid({ ...base, candidates: remaining }, remaining[0], `${name} konnte nicht ablegen und faehrt Bus.`);
+    const fahrer = playerById(g, remaining[0]).name;
+    const raus = escaped.map((id) => playerById(g, id).name).join(", ");
+    return tiebreakErgebnis(
+      base,
+      remaining[0],
+      escaped,
+      `${card.rank} aufgedeckt – ${raus} kann ablegen und ist raus. ${fahrer} fährt Bus.`
+    );
   }
 
   const raus = escaped.length && escaped.length < g.candidates.length
@@ -415,7 +437,7 @@ export function tiebreakFlip(g) {
 
 /** Patt: jeder zieht eine Karte, der niedrigste Wert faehrt. */
 export function tiebreakDraw(g) {
-  if (g.phase !== "tiebreak" || g.tieMode !== "draw") return g;
+  if (g.phase !== "tiebreak" || g.tieMode !== "draw" || g.tieResult) return g;
 
   let deck = refill(g, g.candidates.length);
   const drawn = {};
@@ -427,7 +449,13 @@ export function tiebreakDraw(g) {
 
   if (losers.length === 1) {
     const name = playerById(g, losers[0]).name;
-    return startPyramid({ ...g, deck, drawn }, losers[0], `${name} hat die niedrigste Karte und faehrt Bus.`);
+    const raus = g.candidates.filter((id) => id !== losers[0]);
+    return tiebreakErgebnis(
+      { ...g, deck, drawn },
+      losers[0],
+      raus,
+      `${name} hat mit ${drawn[losers[0]].rank} die niedrigste Karte und fährt Bus.`
+    );
   }
 
   return {
@@ -472,6 +500,7 @@ function startPyramid(g, driverId, extraMessage) {
     flipped: null,
     drawn: null,
     candidates: null,
+    tieResult: null,
     pending: {},
     draft: {},
     phase: "pyramid",
