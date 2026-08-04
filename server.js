@@ -130,6 +130,9 @@ const lobbyView = (l) => ({
   players: l.players,
   started: l.game !== null,
   spiel: l.spiel,
+  // Bei Leberschuss steht zwischen "Starten" und der ersten Runde noch die
+  // Platzwahl: vier Felder, zwei je Team. `null` heisst, sie laeuft nicht.
+  plaetze: l.plaetze ?? null,
 });
 
 function findBySocket(socketId) {
@@ -300,20 +303,39 @@ io.on("connection", (socket) => {
    * beiden linken Plaetze sind die Kapitaene. Wer sich woanders hinsetzt,
    * tauscht mit dem, der da sitzt - so bleiben immer alle vier auf Plaetzen.
    */
-  socket.on("platzTausch", ({ nr } = {}) => {
+  socket.on("platzWaehlen", ({ nr } = {}) => {
     const found = findBySocket(socket.id);
     if (!found) return;
     const { lobby, playerId } = found;
-    if (lobby.game) return;
+    if (!lobby.plaetze || lobby.game) return;
 
-    const ziel = Number(nr);
-    const ich = lobby.players.findIndex((p) => p.id === playerId);
-    if (!Number.isInteger(ziel) || ziel < 0 || ziel >= lobby.players.length) return;
-    if (ich < 0 || ich === ziel) return;
+    // Erst den alten Platz raeumen - sonst sitzt man auf zweien.
+    const alt = lobby.plaetze.indexOf(playerId);
+    if (alt >= 0) lobby.plaetze[alt] = null;
 
-    const liste = lobby.players;
-    [liste[ich], liste[ziel]] = [liste[ziel], liste[ich]];
+    // nr === null heisst nur aufstehen. Sonst: hinsetzen, falls frei.
+    const ziel = nr === null || nr === undefined ? -1 : Number(nr);
+    if (ziel >= 0 && ziel < lobby.plaetze.length && lobby.plaetze[ziel] === null) {
+      lobby.plaetze[ziel] = playerId;
+    }
     lobby.lastActivity = Date.now();
+
+    // Sitzen alle vier, geht es los - die Sitzordnung IST die Spielerliste.
+    if (lobby.plaetze.every((id) => id !== null)) {
+      lobby.players = lobby.plaetze.map((id) => lobby.players.find((p) => p.id === id));
+      lobby.plaetze = null;
+      return neueRunde(lobby);
+    }
+    io.to(lobby.code).emit("lobby", lobbyView(lobby));
+  });
+
+  /** Die Platzwahl abbrechen - zurueck in die Lobby. Nur der Host. */
+  socket.on("platzwahlAus", () => {
+    const found = findBySocket(socket.id);
+    if (!found) return;
+    const { lobby, playerId } = found;
+    if (!lobby.players.find((p) => p.id === playerId)?.isHost) return;
+    lobby.plaetze = null;
     io.to(lobby.code).emit("lobby", lobbyView(lobby));
   });
 
@@ -332,6 +354,13 @@ io.on("connection", (socket) => {
     if (lobby.players.length < g.min || lobby.players.length > g.max) {
       const wie = g.min === g.max ? `genau ${g.min}` : `${g.min} bis ${g.max}`;
       return socket.emit("errorMsg", `Dafuer braucht ihr ${wie} Spieler.`);
+    }
+
+    // Leberschuss faengt nicht sofort an: erst suchen sich alle einen Platz,
+    // und daraus ergeben sich die Teams.
+    if (lobby.spiel === "leber") {
+      lobby.plaetze = [null, null, null, null];
+      return io.to(lobby.code).emit("lobby", lobbyView(lobby));
     }
     neueRunde(lobby);
   });
