@@ -281,7 +281,14 @@ io.on("connection", (socket) => {
     if (!found) return;
     const { lobby, playerId } = found;
     if (!lobby.players.find((p) => p.id === playerId)?.isHost) return;
-    if (lobby.game || !istSpiel(spiel)) return;
+    if (!istSpiel(spiel)) return;
+
+    // Waehrend eine Runde laeuft, wird nicht umgestellt - aber das muss man
+    // auch merken. Vorher ist der Tipp einfach ins Leere gegangen, und auf dem
+    // Handy sah es aus, als liesse sich das Spiel nicht mehr wechseln.
+    if (lobby.game) {
+      return socket.emit("errorMsg", "Erst die Runde beenden, dann umstellen.");
+    }
     lobby.spiel = spiel;
     lobby.lastActivity = Date.now();
     io.to(lobby.code).emit("lobby", lobbyView(lobby));
