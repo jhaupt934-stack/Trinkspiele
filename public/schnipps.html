@@ -61,6 +61,7 @@
 <div class="wrap">
   <div class="kopf">
     <h1>Leberschuss</h1>
+    <div class="zahl" id="stand">0 : 0</div>
     <div class="zahl">Runde <b id="summe">1</b></div>
   </div>
   <canvas id="feld"></canvas>
@@ -74,7 +75,7 @@
     <button class="gross grau" id="knopf2" hidden></button>
   </div>
   <div class="fuss">
-    <button class="grau klein" id="leer" hidden></button>
+    <button class="grau klein" id="oben">Von oben</button>
     <button class="grau klein" id="neu">Neu</button>
   </div>
 </div>
@@ -87,7 +88,7 @@
 import {
   initLeber, schuss, amZug, letzteBewegung,
   pfeilRichtung, balkenKraft, teamPlaetze,
-  verteile, antworte, darfBestaetigen, leerBestaetigen, leerAblehnen,
+  verteile, antworte, leerBestaetigen, leerAblehnen, teamGetrunken,
   PLAETZE, TEAM_NAME,
 } from "/game/leber.js";
 import { macheZeichner } from "/leber3d.js";
@@ -97,7 +98,8 @@ const summeEl = document.getElementById("summe");
 const hinweisEl = document.getElementById("hinweis");
 const knopfEl = document.getElementById("knopf");
 const knopf2El = document.getElementById("knopf2");
-const leerEl = document.getElementById("leer");
+const obenEl = document.getElementById("oben");
+const standEl = document.getElementById("stand");
 const zeichner = macheZeichner(cv);
 
 const SPIELER = PLAETZE.map((p, i) => ({ id: "p" + i, name: `Spieler ${i + 1}` }));
@@ -110,7 +112,8 @@ let getroffen = [];
 
 // Was die drei Knoepfe gerade tun. Auf einem Handy, das herumgereicht wird,
 // wechselt das staendig - deshalb steht die Bedeutung hier und nicht im HTML.
-let tun = { knopf: null, knopf2: null, leer: null };
+let tun = { knopf: null, knopf2: null };
+let oben = false; // von Hand auf Draufsicht geschaltet
 
 // ---------------------------------------------------------------------------
 // Zeichnen
@@ -122,6 +125,7 @@ const bild = () => ({
   eigener: g.phase === "play" && !abspielen ? amZug(g) : -1,
   zielen,
   getroffen,
+  namen: SPIELER.map((p) => p.name),
 });
 
 const malen = () => zeichner.zeichne(bild());
@@ -152,8 +156,10 @@ function aufteilung() {
 /** Alles, was nicht das Spielfeld ist: Texte und Knoepfe. */
 function anzeigen() {
   summeEl.textContent = g.runde;
+  standEl.textContent = `${teamGetrunken(g, 0)} : ${teamGetrunken(g, 1)}`;
   knopf(knopf2El, "knopf2", "", null);
-  knopf(leerEl, "leer", "", null);
+  obenEl.textContent = oben ? "Vom Platz" : "Von oben";
+  obenEl.hidden = g.phase !== "play" || !!zielen || !!abspielen;
 
   if (g.phase === "finished") {
     hinweisEl.textContent = `${TEAM_NAME[g.sieger]} hat beide Flaschen leer. Gewonnen!`;
@@ -229,7 +235,8 @@ function tuIt(neuerStand) {
 function neuerZug() {
   const nr = amZug(g);
   if (nr === undefined) return;
-  zeichner.kameraSpieler(nr);
+  if (oben) zeichner.kameraOben(nr);
+  else zeichner.kameraSpieler(nr);
   anzeigen();
   malen();
 }
@@ -318,6 +325,7 @@ function nachDemSchuss() {
 
 function neuesSpiel() {
   g = initLeber(SPIELER);
+  oben = false;
   zielen = null;
   abspielen = null;
   getroffen = [];
@@ -327,10 +335,15 @@ function neuesSpiel() {
 /** Ein Tipp aufs Feld macht dasselbe wie der grosse Knopf. */
 const tippen = () => tun.knopf?.();
 
+obenEl.addEventListener("click", () => {
+  if (g.phase !== "play" || zielen || abspielen) return;
+  oben = !oben;
+  neuerZug();
+});
+
 cv.addEventListener("pointerdown", tippen);
 knopfEl.addEventListener("click", tippen);
 knopf2El.addEventListener("click", () => tun.knopf2?.());
-leerEl.addEventListener("click", () => tun.leer?.());
 document.getElementById("neu").addEventListener("click", neuesSpiel);
 window.addEventListener("resize", () => {
   zeichner.messen();

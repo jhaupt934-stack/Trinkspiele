@@ -60,6 +60,7 @@ import {
   letzteBewegung,
   pfeilRichtung,
   balkenKraft,
+  teamGetrunken,
   PLAETZE,
   TEAM_NAME,
 } from "/game/leber.js";
@@ -255,7 +256,7 @@ const regelnHtml = (id) => REGELN[id] ?? "<p>Für dieses Spiel gibt es noch kein
 
 // Steht unten auf der Startseite. Wenn etwas komisch aussieht, sagt diese
 // Nummer sofort, welche Fassung auf dem Handy wirklich laeuft.
-const VERSION = "v36";
+const VERSION = "v37";
 
 const el = document.getElementById("app");
 
@@ -2057,6 +2058,7 @@ const L = {
   abspielen: null, // laufende Schussanimation
   gezeigt: 0,      // welcher Schuss schon abgespielt wurde
   kamera: null,    // was gerade eingestellt ist
+  oben: false,     // von Hand auf Draufsicht geschaltet
   breite: 0,
   hoehe: 0,
 };
@@ -2156,7 +2158,25 @@ function leberScreen(g) {
     knoepfe = `<button class="wide" data-a="leberAktion">Losschnippsen</button>`;
   }
 
+  // Waehrend des Zielens und der Animation bleibt die Kamera, wo sie ist -
+  // sonst springt einem das Feld unter dem Finger weg.
+  const umschalten =
+    g.phase === "play" && !L.zielen && !L.abspielen
+      ? `<button class="ghost small" data-a="leberOben">${
+          L.oben ? "Vom Platz" : "Von oben"
+        }</button>`
+      : "";
+
   return `
+    <div class="lzaehler">
+      ${[0, 1]
+        .map(
+          (t) =>
+            `<span class="t${t}"><b>${TEAM_NAME[t]}</b> ${teamGetrunken(g, t)}</span>`
+        )
+        .join("")}
+      ${umschalten}
+    </div>
     <div id="leberBuehne" class="lbuehne"></div>
     <p class="lhinweis">${text}</p>
     ${leberSplitZeile(g)}
@@ -2220,8 +2240,8 @@ function leberKamera(g) {
   if (L.abspielen) return;
   // Nur beim Schnippsen schaut man von seinem Platz - beim Abrechnen und
   // Aufteilen von oben, da sieht man erst, wo alles liegt.
-  const spielt = g.phase === "play";
-  const nr = spielt ? amZugLeber(g) : g.reihe[g.reihe.length - 1];
+  const spielt = g.phase === "play" && !L.oben;
+  const nr = g.phase === "play" ? amZugLeber(g) : g.reihe[g.reihe.length - 1];
   const art = (spielt ? "spieler" : "oben") + ":" + nr;
   const b = L.cv.getBoundingClientRect();
   if (art === L.kamera && b.width === L.breite && b.height === L.hoehe) return;
@@ -2243,6 +2263,7 @@ function leberZeichnen(g) {
       g.phase === "play" || L.abspielen
         ? []
         : (g.letzte?.einzeln ?? []).filter(Boolean).map((w) => w.feld),
+    namen: g.players.map((p) => p.name),
   });
 }
 
@@ -2501,6 +2522,10 @@ el.addEventListener("click", (e) => {
     case "leberZurueck":
       dispatch({ type: "verteilenZurueck", playerId: t.dataset.p, targetId: t.dataset.p });
       return;
+    case "leberOben":
+      L.oben = !L.oben;
+      break;
+
     case "leberIstLeer":
       dispatch({ type: "leerAntwort", playerId: t.dataset.p, leer: true });
       return;

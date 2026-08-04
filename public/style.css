@@ -805,3 +805,12 @@ html, body { overflow-x: hidden; }
 .app { overflow-x: hidden; }
 .lleer { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 8px; }
 .lleer button { padding: 8px 12px; font-size: 12px; }
+/* Zeile über dem Spielfeld: wie viel jedes Team schon getrunken hat, und der
+   Umschalter auf die Draufsicht. */
+.lzaehler {
+  display: flex; align-items: center; gap: 12px; margin: 0 0 8px;
+  font-size: 13px; font-weight: 700; color: var(--muted);
+}
+.lzaehler .t0 b { color: #E6E9F0; }
+.lzaehler .t1 b { color: #7CC4F5; }
+.lzaehler button { margin-left: auto; padding: 7px 12px; font-size: 12px; }

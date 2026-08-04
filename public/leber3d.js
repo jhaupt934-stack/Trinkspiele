@@ -9,6 +9,7 @@
 //     eigener:   Nummer des Korkens, der einen Ring bekommt (oder -1),
 //     zielen:    null oder { nr, phase: "richtung"|"kraft", richtung, kraft },
 //     getroffen: Felder, die nach der Runde aufleuchten sollen,
+//     namen:     Namen der vier Leute - werden nur in der Draufsicht gemalt,
 //   })
 //
 // Dadurch laesst es sich sowohl von der einzelnen Testseite als auch aus der
@@ -16,7 +17,7 @@
 
 // Relativ und nicht "/game/schnipps.js": so findet nicht nur der Browser die
 // Datei, sondern auch Node beim Prüfen und beim Bilder-Rendern.
-import { FELD, FELDER, FLASCHEN, ECKEN, KORKEN_R, DEKO, FARBEN } from "../game/schnipps.js";
+import { FELD, FELDER, FLASCHEN, FLASCHEN_R, ECKEN, KORKEN_R, DEKO, FARBEN } from "../game/schnipps.js";
 
 /** Die vier Ecken, an denen die Spieler sitzen - nur fuer die Kamera. */
 const ECKE = [
@@ -96,6 +97,7 @@ function kameraVonOben(nr) {
 }
 
 let KAMERA = kameraFuer(0);
+let vonOben = false;
 
 /** Die Matte ist kein Aufkleber, sondern hat Dicke. Alles liegt darauf. */
 const MATTE_Z = 0.4;
@@ -299,10 +301,13 @@ const FLASCHEN_PROFIL = [
 ];
 
 /**
- * Die Flaschen wirkten zu klobig auf der Matte - also alles ein Stück kleiner.
- * Die Rechnerei kennt keine Flaschenhöhe, das ist reine Optik.
+ * Wie groß die Flasche gezeichnet wird, sagt die Rechnerei: FLASCHEN_R ist der
+ * halbe Durchmesser, an dem ein Korken abprallt. Der Maßstab wird daraus
+ * abgeleitet, damit Bild und Trefferzone nicht auseinanderlaufen - sonst
+ * prallte der Korken sichtbar an nichts ab.
  */
-const MASSTAB = 0.88;
+const BAUCH = Math.max(...FLASCHEN_PROFIL.map(([, r]) => r));
+const MASSTAB = FLASCHEN_R / BAUCH;
 const FLASCHE = { hoehe: 21.55 * MASSTAB + 0.6 };
 
 /**
@@ -761,6 +766,50 @@ function malFlascheInnen(mx, my) {
   ctx.fill();
 }
 
+/**
+ * Der Schriftzug aufs Etikett. Auf dem Handy ist die Flasche keinen Zentimeter
+ * hoch - lesen wird das niemand, aber ohne Schrift sieht ein Etikett aus wie
+ * ein Streifen Papier. Deshalb echter Text, klein und quer zur Blickrichtung.
+ */
+function malSchriftzug(mx, my) {
+  const links = proj(mx - 2.2, my, MATTE_Z + 6.4 * MASSTAB);
+  const rechts = proj(mx + 2.2, my, MATTE_Z + 6.4 * MASSTAB);
+  const breit = Math.hypot(rechts.x - links.x, rechts.y - links.y);
+  if (breit < 12) return; // zu klein, das wird nur ein Fleck
+
+  // Zur Kamera hin versetzt, nicht stur nach vorne: die beiden hinteren
+  // Flaschen werden ja von der anderen Seite angeschaut.
+  const w = Math.atan2(KAMERA.y - my, KAMERA.x - mx);
+  const p = proj(
+    mx + Math.cos(w) * FLASCHEN_R * 0.9,
+    my + Math.sin(w) * FLASCHEN_R * 0.9,
+    MATTE_Z + 6.4 * MASSTAB
+  );
+  ctx.save();
+  ctx.fillStyle = "#1A1A1A";
+  ctx.font = `800 ${Math.round(breit * 0.23)}px -apple-system, "Segoe UI", sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("VELTINS", p.x, p.y);
+  ctx.restore();
+}
+
+/** Der Name über einem Korken - nur in der Draufsicht, sonst wird es voll. */
+function malName(k, name) {
+  if (!name) return;
+  const p = proj(k.x, k.y, MATTE_Z + 1.6);
+  ctx.save();
+  ctx.font = '800 13px -apple-system, "Segoe UI", sans-serif';
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.lineWidth = 3.5;
+  ctx.strokeStyle = "rgba(0,0,0,.75)";
+  ctx.strokeText(name, p.x, p.y - 17);
+  ctx.fillStyle = "#FFFFFF";
+  ctx.fillText(name, p.x, p.y - 17);
+  ctx.restore();
+}
+
 function malKorken(bild, k, nr) {
   maleFlaechen(netzFlaechen(KORKEN_NETZE[k.team], k.x, k.y));
 
@@ -858,6 +907,7 @@ function maleHintergrund(b) {
   for (const t of [...flaschenTeile].sort((a, c) => c.tiefe - a.tiefe)) {
     malFlascheInnen(t.x, t.y);
     maleFlaechen(t.flaechen);
+    malSchriftzug(t.x, t.y);
   }
 
   // --- Zum Rand hin abdunkeln, damit das Auge in der Mitte bleibt ---
@@ -924,6 +974,12 @@ function malen(bild) {
     .filter((e) => !e.k.raus)
     .sort((a, c) => c.tiefe - a.tiefe);
   for (const e of liegend) malKorken(bild, e.k, e.i);
+
+  // Von oben ist Platz fuer die Namen - und genau dann will man wissen, wessen
+  // Korken wo liegt.
+  if (vonOben && bild.namen) {
+    for (const e of liegend) malName(e.k, bild.namen[e.i]);
+  }
 
   // Ein Korken kann hinter einer Flasche liegen. Weil die Flaschen im
   // vorgebackenen Bild stecken, würde er dann fälschlich davor auftauchen -
@@ -1012,11 +1068,13 @@ return {
   /** Kamera auf den Platz eines Spielers stellen. */
   kameraSpieler(nr) {
     KAMERA = kameraFuer(nr);
+    vonOben = false;
     messen();
   },
-  /** Kamera senkrecht von oben - fuer die Abrechnung nach der Runde. */
+  /** Kamera senkrecht von oben - fuer die Abrechnung und auf Knopfdruck. */
   kameraOben(nr) {
     KAMERA = kameraVonOben(nr);
+    vonOben = true;
     messen();
   },
   /** Nur fuer Tests: ein Punkt der Tischwelt auf dem Bildschirm. */
