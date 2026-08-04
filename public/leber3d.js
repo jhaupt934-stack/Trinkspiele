@@ -62,14 +62,16 @@ function kameraFuer(nr) {
   const s = ECKE[nr] ?? ECKE[0];
   const nah = s.y < FELD.laenge / 2;
   return {
-    // Weiter außen als die eigene Ecke: man sitzt ja daneben, nicht dahinter.
-    x: FELD.breite / 2 + (s.x - FELD.breite / 2) * 1.25,
-    y: nah ? -84 : FELD.laenge + 84,          // dicht am Tisch
-    z: 92,                                    // etwa Augenhöhe im Sitzen
+    // Deutlich weiter außen als die eigene Ecke: man sitzt schräg am Tisch,
+    // nicht dahinter. Zusammen mit der niedrigen Höhe ergibt das den flachen
+    // Blick über die Matte, bei dem die hintere Hälfte klein wird.
+    x: FELD.breite / 2 + (s.x - FELD.breite / 2) * 1.5,
+    y: nah ? -78 : FELD.laenge + 78,          // dicht am Tisch
+    z: 84,                                    // etwa Augenhöhe im Sitzen
     zielX: FELD.breite / 2,
-    zielY: nah ? 58 : FELD.laenge - 58,       // knapp über die Mitte hinaus
-    zielZ: 8,
-    brenn: 106,                               // je größer, desto flacher
+    zielY: nah ? 56 : FELD.laenge - 56,       // knapp über die Mitte hinaus
+    zielZ: 7,
+    brenn: 96,                                // je größer, desto flacher
   };
 }
 
@@ -291,8 +293,8 @@ const FLASCHEN_PROFIL = [
   [0, 0], [0, 2.90], [0.10, 3.14], [0.32, 3.28], [0.75, 3.32], [1.30, 3.33],
   // Die engen Punkte hier sind die Kanten des Etiketts. Ohne sie gäbe es keine
   // Ringe, auf denen das Papier überhaupt sitzen könnte.
-  [2.90, 3.33], [2.92, 3.36], [3.55, 3.36], [8.90, 3.36], [10.10, 3.36],
-  [10.28, 3.36], [10.30, 3.30],
+  [2.60, 3.33], [2.62, 3.36], [3.20, 3.36], [9.30, 3.36], [9.60, 3.36],
+  [11.05, 3.36], [11.08, 3.28],
   [11.10, 3.22], [11.90, 3.08],
   [12.70, 2.88], [13.40, 2.64], [14.10, 2.36], [14.80, 2.06],
   [15.50, 1.78], [16.10, 1.55], [16.60, 1.41], [17.10, 1.33],
@@ -321,9 +323,9 @@ const FLASCHE = { hoehe: 21.55 * MASSTAB + 0.6 };
  * ohnehin nicht nach; das hier ist eine Anlehnung, keine Kopie.
  */
 function flaschenHaut(z) {
-  if (z > 2.90 && z < 10.30) {
-    if (z < 3.55) return PAPIER_GRUEN;   // schmaler Streifen unten
-    if (z > 8.90) return PAPIER_GRUEN;   // das breite Band oben
+  if (z > 2.60 && z < 11.08) {
+    if (z < 3.20) return PAPIER_GRUEN;   // schmaler Streifen unten
+    if (z > 9.60) return PAPIER_GRUEN;   // das breite Band oben
     return PAPIER;
   }
   return GLAS;
@@ -767,30 +769,75 @@ function malFlascheInnen(mx, my) {
 }
 
 /**
- * Der Schriftzug aufs Etikett. Auf dem Handy ist die Flasche keinen Zentimeter
- * hoch - lesen wird das niemand, aber ohne Schrift sieht ein Etikett aus wie
- * ein Streifen Papier. Deshalb echter Text, klein und quer zur Blickrichtung.
+ * Der Aufdruck aufs Etikett: Wappen, VELTINS, Pilsener.
+ *
+ * Das Etikett selbst ist Teil des Drehkoerpers - Schrift laesst sich darauf
+ * aber nicht drehen. Also wird sie flach auf die Vorderseite gelegt: die
+ * Blickrichtung gibt die Breite vor, und alles skaliert mit ihr. Wird die
+ * Flasche zu klein, faellt zuerst das Kleingedruckte weg, dann das Wappen -
+ * ein Fleck sieht schlechter aus als gar nichts.
  */
 function malSchriftzug(mx, my) {
-  const links = proj(mx - 2.2, my, MATTE_Z + 6.4 * MASSTAB);
-  const rechts = proj(mx + 2.2, my, MATTE_Z + 6.4 * MASSTAB);
-  const breit = Math.hypot(rechts.x - links.x, rechts.y - links.y);
-  if (breit < 12) return; // zu klein, das wird nur ein Fleck
+  // Quer zur Blickrichtung: so breit ist das Etikett auf dem Bildschirm.
+  const zur = Math.atan2(my - KAMERA.y, mx - KAMERA.x);
+  const qx = -Math.sin(zur);
+  const qy = Math.cos(zur);
+  const r = FLASCHEN_R * 0.82;
+  const hoehe = MATTE_Z + 6.0 * MASSTAB;
 
-  // Zur Kamera hin versetzt, nicht stur nach vorne: die beiden hinteren
-  // Flaschen werden ja von der anderen Seite angeschaut.
-  const w = Math.atan2(KAMERA.y - my, KAMERA.x - mx);
-  const p = proj(
-    mx + Math.cos(w) * FLASCHEN_R * 0.9,
-    my + Math.sin(w) * FLASCHEN_R * 0.9,
-    MATTE_Z + 6.4 * MASSTAB
-  );
+  const a = proj(mx - qx * r, my - qy * r, hoehe);
+  const b = proj(mx + qx * r, my + qy * r, hoehe);
+  const breit = Math.hypot(b.x - a.x, b.y - a.y);
+  if (breit < 14) return;
+
+  // Der Mittelpunkt der Vorderseite - dorthin gehoert die Schrift.
+  const vorn = proj(mx + Math.cos(zur) * r * 0.55, my + Math.sin(zur) * r * 0.55, hoehe);
+  const zeile = (dz) =>
+    proj(mx + Math.cos(zur) * r * 0.55, my + Math.sin(zur) * r * 0.55, hoehe + dz * MASSTAB);
+
   ctx.save();
-  ctx.fillStyle = "#1A1A1A";
-  ctx.font = `800 ${Math.round(breit * 0.23)}px -apple-system, "Segoe UI", sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText("VELTINS", p.x, p.y);
+
+  // Das Wappen: ein Schild mit rotem und gruenem Feld, darueber die Krone.
+  if (breit > 30) {
+    const w = zeile(1.9);
+    const s = breit * 0.13;
+    ctx.beginPath();
+    ctx.moveTo(w.x - s, w.y - s);
+    ctx.lineTo(w.x + s, w.y - s);
+    ctx.lineTo(w.x + s, w.y + s * 0.3);
+    ctx.lineTo(w.x, w.y + s * 1.2);
+    ctx.lineTo(w.x - s, w.y + s * 0.3);
+    ctx.closePath();
+    ctx.fillStyle = "#0F0F0F";
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(w.x - s * 0.62, w.y - s * 0.45);
+    ctx.lineTo(w.x + s * 0.62, w.y - s * 0.45);
+    ctx.lineTo(w.x + s * 0.62, w.y + s * 0.15);
+    ctx.lineTo(w.x, w.y + s * 0.75);
+    ctx.lineTo(w.x - s * 0.62, w.y + s * 0.15);
+    ctx.closePath();
+    ctx.fillStyle = "#C8102E";
+    ctx.fill();
+  }
+
+  // VELTINS - eine Serifenschrift, gesperrt. Genau daran erkennt man es.
+  const gross = Math.round(breit * 0.235);
+  ctx.font = `700 ${gross}px Georgia, "Times New Roman", serif`;
+  ctx.fillStyle = "#0E0E0E";
+  if (ctx.letterSpacing !== undefined) ctx.letterSpacing = `${(breit * 0.012).toFixed(1)}px`;
+  ctx.fillText("VELTINS", vorn.x, vorn.y);
+  if (ctx.letterSpacing !== undefined) ctx.letterSpacing = "0px";
+
+  // Pilsener - gruen und kursiv, wie der Schwung auf dem Etikett.
+  if (breit > 26) {
+    const u = zeile(-1.6);
+    ctx.font = `italic 700 ${Math.round(breit * 0.16)}px Georgia, "Times New Roman", serif`;
+    ctx.fillStyle = "#00913F";
+    ctx.fillText("Pilsener", u.x, u.y);
+  }
   ctx.restore();
 }
 

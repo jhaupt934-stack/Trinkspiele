@@ -61,6 +61,9 @@ import {
   pfeilRichtung,
   balkenKraft,
   teamGetrunken,
+  istKapitaen,
+  kapitaenVon,
+  KAPITAEN,
   PLAETZE,
   TEAM_NAME,
 } from "/game/leber.js";
@@ -256,7 +259,7 @@ const regelnHtml = (id) => REGELN[id] ?? "<p>Für dieses Spiel gibt es noch kein
 
 // Steht unten auf der Startseite. Wenn etwas komisch aussieht, sagt diese
 // Nummer sofort, welche Fassung auf dem Handy wirklich laeuft.
-const VERSION = "v37";
+const VERSION = "v38";
 
 const el = document.getElementById("app");
 
@@ -672,6 +675,41 @@ function setupScreen() {
     </div>`;
 }
 
+/**
+ * Die Sitzordnung für Leberschuss. Die Reihenfolge in der Spielerliste IST die
+ * Sitzordnung - wer sich woanders hinsetzt, tauscht mit dem, der da sitzt.
+ * Der linke Platz jedes Teams ist der Kapitän: nur er teilt später die
+ * Schlücke auf.
+ */
+function sitzordnung() {
+  const p = S.lobby?.players ?? [];
+  if (p.length !== 4) {
+    return `<p class="regelhinweis">Leberschuss braucht genau 4 – dann könnt ihr euch hier
+      auf die Plätze setzen.</p>`;
+  }
+
+  const platz = (nr) => {
+    const wer = p[nr];
+    const ich = wer?.id === S.myId;
+    const kap = KAPITAEN.includes(nr);
+    return `
+      <button class="sitz ${ich ? "ich" : ""} t${PLAETZE[nr].team}" data-a="platzTausch" data-i="${nr}">
+        ${avatar(wer)}
+        <b>${esc(wer?.name ?? "")}</b>
+        ${kap ? `<i>Kapitän</i>` : ""}
+      </button>`;
+  };
+
+  return `
+    <p class="label">Plätze – tippen zum Tauschen</p>
+    <div class="tisch">
+      <span class="kante">hintere Kante · ${TEAM_NAME[1]}</span>
+      ${platz(2)}${platz(3)}
+      ${platz(0)}${platz(1)}
+      <span class="kante">vordere Kante · ${TEAM_NAME[0]}</span>
+    </div>`;
+}
+
 /** Name des Hosts im Warteraum. */
 const hostNameLobby = () => S.lobby?.players.find((p) => p.isHost)?.name ?? "der Host";
 
@@ -730,6 +768,7 @@ function lobbyScreen() {
 
       <p class="label">${binHost ? "Spiel" : `Spiel – wählt ${esc(hostNameLobby())}`}</p>
       ${gamePicker(spiel, binHost)}
+      ${spiel === "leber" ? sitzordnung() : ""}
       ${S.error ? `<p class="error">${esc(S.error)}</p>` : ""}
 
       <div class="actions">
@@ -2120,8 +2159,10 @@ function leberScreen(g) {
   } else if (g.phase === "verteilen") {
     // BEIDE Teams teilen gleichzeitig auf, jedes fuer sich.
     const meins = S.mode === "local" ? (g.offen[0] > 0 ? 0 : 1) : meinTeam;
+    const kap = kapitaenVon(g, meins);
+    const darfIch = S.mode === "local" || istKapitaen(g, S.myId);
 
-    if (g.offen[meins] > 0) {
+    if (g.offen[meins] > 0 && darfIch) {
       text = `<b>${g.offen[meins]}</b> ${
         g.offen[meins] === 1 ? "Schluck" : "Schlücke"
       } für ${TEAM_NAME[meins]} – wer trinkt?`;
@@ -2134,17 +2175,21 @@ function leberScreen(g) {
             const zahl = g.letzte?.verteilt[i] ?? 0;
             return g.fertig[i]
               ? `<button class="secondary" disabled>${esc(p.name)} ist leer</button>`
-              : `<button data-a="leberGib" data-p="${p.id}">${esc(p.name)}${
+              : `<button data-a="leberGib" data-p="${kap.id}" data-ziel="${p.id}">${esc(p.name)}${
                   zahl ? ` <b>${zahl}</b>` : ""
                 }</button>`;
           })
           .join("") +
         `</div>` +
         (schonWas !== undefined
-          ? `<button class="ghost wide" data-a="leberZurueck" data-p="${g.players[schonWas].id}">Zurück</button>`
+          ? `<button class="ghost wide" data-a="leberZurueck" data-p="${kap.id}" data-ziel="${g.players[schonWas].id}">Zurück</button>`
           : "");
+    } else if (g.offen[meins] > 0) {
+      text = `${esc(kap?.name ?? "")} teilt eure ${g.offen[meins]} auf.`;
     } else {
-      const andere = [0, 1].filter((t) => g.offen[t] > 0).map((t) => TEAM_NAME[t]);
+      const andere = [0, 1]
+        .filter((t) => g.offen[t] > 0)
+        .map((t) => esc(kapitaenVon(g, t)?.name ?? TEAM_NAME[t]));
       text = andere.length ? `${andere.join(" und ")} teilt noch auf.` : "…";
     }
   } else if (meinPlatz !== nr) {
@@ -2160,8 +2205,10 @@ function leberScreen(g) {
 
   // Waehrend des Zielens und der Animation bleibt die Kamera, wo sie ist -
   // sonst springt einem das Feld unter dem Finger weg.
+  // Der Umschalter bleibt waehrend der ganzen Runde da - auch beim Zielen.
+  // Nur waehrend ein Schuss laeuft nicht, da spraenge das Bild mittendrin.
   const umschalten =
-    g.phase === "play" && !L.zielen && !L.abspielen
+    g.phase === "play" && !L.abspielen
       ? `<button class="ghost small" data-a="leberOben">${
           L.oben ? "Vom Platz" : "Von oben"
         }</button>`
@@ -2238,10 +2285,15 @@ function leberAnbauen(g) {
  */
 function leberKamera(g) {
   if (L.abspielen) return;
-  // Nur beim Schnippsen schaut man von seinem Platz - beim Abrechnen und
-  // Aufteilen von oben, da sieht man erst, wo alles liegt.
+
+  // Jeder sitzt auf SEINEM Platz und schaut von dort - nicht ueber die
+  // Schulter dessen, der gerade dran ist. Nur am gemeinsam benutzten Handy
+  // wandert der Blick mit, da wird es ja herumgereicht.
+  const meiner = S.mode === "online" ? platzVon(g, S.myId) : amZugLeber(g);
+  const nr = meiner >= 0 ? meiner : 0;
+
+  // Von oben: nach der Runde immer, waehrend der Runde auf Knopfdruck.
   const spielt = g.phase === "play" && !L.oben;
-  const nr = g.phase === "play" ? amZugLeber(g) : g.reihe[g.reihe.length - 1];
   const art = (spielt ? "spieler" : "oben") + ":" + nr;
   const b = L.cv.getBoundingClientRect();
   if (art === L.kamera && b.width === L.breite && b.height === L.hoehe) return;
@@ -2517,10 +2569,10 @@ el.addEventListener("click", (e) => {
     // Die kleinen Leberschuss-Knoepfe tragen den Spieler im data-p, damit das
     // auch am gemeinsam benutzten Handy eindeutig ist.
     case "leberGib":
-      dispatch({ type: "verteileLeber", playerId: t.dataset.p, targetId: t.dataset.p });
+      dispatch({ type: "verteileLeber", playerId: t.dataset.p, targetId: t.dataset.ziel });
       return;
     case "leberZurueck":
-      dispatch({ type: "verteilenZurueck", playerId: t.dataset.p, targetId: t.dataset.p });
+      dispatch({ type: "verteilenZurueck", playerId: t.dataset.p, targetId: t.dataset.ziel });
       return;
     case "leberOben":
       L.oben = !L.oben;
@@ -2584,6 +2636,10 @@ el.addEventListener("click", (e) => {
       S.spiel = t.dataset.id;
       // In der Lobby entscheidet der Host für alle - der Server sagt es weiter.
       if (S.mode === "online" && S.lobby) S.socket?.emit("setGame", { spiel: S.spiel });
+      break;
+
+    case "platzTausch":
+      S.socket?.emit("platzTausch", { nr: Number(t.dataset.i) });
       break;
 
     case "pickAvatar":

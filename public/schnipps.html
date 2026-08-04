@@ -88,7 +88,7 @@
 import {
   initLeber, schuss, amZug, letzteBewegung,
   pfeilRichtung, balkenKraft, teamPlaetze,
-  verteile, antworte, leerBestaetigen, leerAblehnen, teamGetrunken,
+  verteile, antworte, leerBestaetigen, leerAblehnen, teamGetrunken, kapitaenVon,
   PLAETZE, TEAM_NAME,
 } from "/game/leber.js";
 import { macheZeichner } from "/leber3d.js";
@@ -159,7 +159,7 @@ function anzeigen() {
   standEl.textContent = `${teamGetrunken(g, 0)} : ${teamGetrunken(g, 1)}`;
   knopf(knopf2El, "knopf2", "", null);
   obenEl.textContent = oben ? "Vom Platz" : "Von oben";
-  obenEl.hidden = g.phase !== "play" || !!zielen || !!abspielen;
+  obenEl.hidden = g.phase !== "play" || !!abspielen;
 
   if (g.phase === "finished") {
     hinweisEl.textContent = `${TEAM_NAME[g.sieger]} hat beide Flaschen leer. Gewonnen!`;
@@ -192,15 +192,12 @@ function anzeigen() {
     // Beide Teams teilen auf - am gemeinsamen Handy eins nach dem anderen.
     const team = g.offen[0] > 0 ? 0 : 1;
     const [a, b] = teamPlaetze(team);
+    const kap = kapitaenVon(g, team).id; // nur der Kapitaen teilt auf
     hinweisEl.textContent = `${TEAM_NAME[team]}: ${g.offen[team]} ${
       g.offen[team] === 1 ? "Schluck" : "Schlücke"
-    } – wer trinkt?`;
-    knopf(knopfEl, "knopf", SPIELER[a].name + zusatz(a), () =>
-      tuIt(verteile(g, SPIELER[a].id, SPIELER[a].id))
-    );
-    knopf(knopf2El, "knopf2", SPIELER[b].name + zusatz(b), () =>
-      tuIt(verteile(g, SPIELER[b].id, SPIELER[b].id))
-    );
+    } – ${kapitaenVon(g, team).name} teilt auf`;
+    knopf(knopfEl, "knopf", SPIELER[a].name + zusatz(a), () => tuIt(verteile(g, kap, SPIELER[a].id)));
+    knopf(knopf2El, "knopf2", SPIELER[b].name + zusatz(b), () => tuIt(verteile(g, kap, SPIELER[b].id)));
     return;
   }
 
@@ -336,9 +333,13 @@ function neuesSpiel() {
 const tippen = () => tun.knopf?.();
 
 obenEl.addEventListener("click", () => {
-  if (g.phase !== "play" || zielen || abspielen) return;
+  if (g.phase !== "play" || abspielen) return;
   oben = !oben;
-  neuerZug();
+  const nr = amZug(g);
+  if (oben) zeichner.kameraOben(nr);
+  else zeichner.kameraSpieler(nr);
+  anzeigen();
+  malen();
 });
 
 cv.addEventListener("pointerdown", tippen);

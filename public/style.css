@@ -814,3 +814,30 @@ html, body { overflow-x: hidden; }
 .lzaehler .t0 b { color: #E6E9F0; }
 .lzaehler .t1 b { color: #7CC4F5; }
 .lzaehler button { margin-left: auto; padding: 7px 12px; font-size: 12px; }
+
+/* Sitzordnung für Leberschuss: die Liste IST die Sitzordnung. */
+.tisch {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 7px;
+  background: var(--surface); border: 1.5px solid var(--border);
+  border-radius: 16px; padding: 9px;
+}
+.tisch .kante {
+  grid-column: 1 / -1; text-align: center;
+  font-size: 10px; font-weight: 800; letter-spacing: .6px;
+  color: var(--muted); text-transform: uppercase;
+}
+.sitz {
+  display: flex; align-items: center; gap: 7px; min-width: 0;
+  padding: 8px 10px; font-size: 13px; font-weight: 800; text-align: left;
+  background: var(--surface-2); border: 1.5px solid var(--border); border-radius: 12px;
+  color: var(--text); box-shadow: none;
+}
+.sitz b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sitz.ich { border-color: var(--mint); }
+.sitz.t1 { background: #17233A; }
+.sitz i {
+  margin-left: auto; font-style: normal; font-size: 9px; letter-spacing: .5px;
+  color: #04261F; background: var(--mint); border-radius: 6px; padding: 2px 5px;
+}
+.sitz .av { width: 24px; height: 24px; font-size: 15px; }
+.regelhinweis { font-size: 12px; color: var(--muted); font-weight: 600; margin: 4px 0 0; }
