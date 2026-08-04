@@ -142,14 +142,14 @@ input.code {
    Feste Hoehe statt aspect-ratio: aeltere iPhones kennen aspect-ratio nicht,
    dann faellt der Knopf auf null Hoehe zusammen und ist nicht antippbar. */
 .avpick {
-  display: flex; flex-wrap: wrap; gap: 8px;
+  display: flex; flex-wrap: wrap; gap: 6px;
   margin-bottom: 4px;
 }
 .avopt {
   position: relative; padding: 0; flex: none;
-  width: 52px; height: 52px;
+  width: 44px; height: 44px;
   display: flex; align-items: center; justify-content: center;
-  font-size: 30px; line-height: 1; border-radius: 14px;
+  font-size: 25px; line-height: 1; border-radius: 13px;
   background: var(--surface); border: 2px solid var(--border); box-shadow: none;
 }
 .avopt.mine {
@@ -419,19 +419,26 @@ button.minus:active { background: var(--danger); color: #fff; }
 }
 
 /* --- Spielauswahl --- */
-.games { display: flex; gap: 10px; margin-bottom: 4px; }
+/* Zwei Spalten statt einer Reihe: bei vier Spielen wuerde eine Reihe seitlich
+   ueber den Bildschirm hinauslaufen, und dann kann man das Handy schieben. */
+.games {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 4px;
+}
 .gamecard {
-  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px;
-  padding: 14px 8px; text-align: center;
+  display: flex; align-items: center; gap: 9px;
+  padding: 10px 11px; text-align: left; min-width: 0;
   background: var(--surface); border: 2px solid var(--border); border-radius: 18px;
   box-shadow: none; color: var(--text);
 }
 .gamecard.sel { border-color: var(--mint); background: var(--surface-2); }
 .gamecard:disabled { opacity: 1; }
 .gamecard:disabled:not(.sel) { opacity: .35; }
-.gamecard .emo { font-size: 38px; line-height: 1.1; }
-.gamecard .nm { font-size: 16px; font-weight: 800; }
-.gamecard .kz { font-size: 12px; color: var(--muted); font-weight: 600; }
+.gamecard .emo { font-size: 26px; line-height: 1; flex: none; }
+.gamecard .nm {
+  font-size: 14px; font-weight: 800; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.gamecard .kz { display: none; }
 .gamecard.sel .nm::after { content: " ✓"; color: var(--mint); }
 
 /* --- Regeln --- */
@@ -722,12 +729,12 @@ button.step {
 
 /* --- Einladen: QR-Code und Link --- */
 .einladen {
-  display: flex; align-items: center; gap: 14px;
+  display: flex; align-items: center; gap: 12px;
   background: var(--surface); border: 1.5px solid var(--border);
-  border-radius: 20px; padding: 14px; margin: 12px 0 4px;
+  border-radius: 20px; padding: 11px; margin: 6px 0 4px;
 }
 .einladen .qr {
-  flex: none; width: 108px; height: 108px;
+  flex: none; width: 92px; height: 92px;
   border-radius: 10px; background: #fff;
 }
 .einladen .dazu { flex: 1; min-width: 0; }
@@ -761,3 +768,40 @@ button.step {
 .lhinweis { margin: 0 0 4px; font-size: 14px; font-weight: 700; line-height: 1.35; }
 .lregel { margin: 0; font-size: 11px; line-height: 1.35; color: #8880B8; font-weight: 600; }
 button.stopp { background: linear-gradient(135deg, #FF9F1C, #FF3B6B); }
+
+/* --- Lobby: alles auf einen Bildschirm ------------------------------------ */
+/* Vorher stand jeder Mitspieler in einer eigenen Zeile und die Spiele in einer
+   Reihe. Bei vier Leuten und vier Spielen liess sich der Bildschirm dadurch in
+   beide Richtungen schieben. Jetzt sind es Namensschilder und ein Raster. */
+.lobbykopf { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+.lobbykopf h2 { flex: 1; margin: 0; }
+.lobbykopf button { flex: none; }
+
+.einladen .lcode {
+  font-size: 40px; font-weight: 800; letter-spacing: 8px; line-height: 1;
+  margin-bottom: 9px;
+  background: linear-gradient(135deg, var(--pink), var(--mint));
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+
+.leute { display: flex; flex-wrap: wrap; gap: 7px; margin: 10px 0 2px; }
+.schild {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--surface); border: 1.5px solid var(--border);
+  border-radius: 999px; padding: 4px 11px 4px 5px;
+  font-size: 13px; font-weight: 800; max-width: 100%;
+}
+.schild b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.schild.ich { border-color: var(--mint); }
+.schild.weg { opacity: .45; }
+.schild i {
+  font-style: normal; font-size: 10px; font-weight: 800; letter-spacing: .5px;
+  color: #04261F; background: var(--mint); border-radius: 7px; padding: 2px 6px;
+}
+.schild .av { width: 26px; height: 26px; font-size: 16px; }
+
+/* Nichts darf seitlich hinausragen - sonst laesst sich das Handy schieben. */
+html, body { overflow-x: hidden; }
+.app { overflow-x: hidden; }
+.lleer { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 8px; }
+.lleer button { padding: 8px 12px; font-size: 12px; }

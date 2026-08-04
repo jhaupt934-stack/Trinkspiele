@@ -52,6 +52,8 @@
   }
   button.grau { background: #2C2560; border: 1.5px solid #4A3F92; }
   button.gross { flex: 1; font-size: 17px; padding: 15px 16px; }
+  button.klein { flex: 1; font-size: 13px; padding: 9px 12px; }
+  button[hidden] { display: none; }
   button.stopp { background: linear-gradient(135deg, #FF9F1C, #FF3B6B); }
 </style>
 </head>
@@ -61,25 +63,19 @@
     <h1>Leberschuss</h1>
     <div class="zahl">Runde <b id="summe">1</b></div>
   </div>
-  <div class="teams">
-    <div class="team t0" id="team0">
-      <div class="kopfzeile"><b>Team 1</b><span id="zahl0">0/28</span></div>
-      <div class="balken"><i id="balken0"></i></div>
-    </div>
-    <div class="team t1" id="team1">
-      <div class="kopfzeile"><b>Team 2</b><span id="zahl1">0/28</span></div>
-      <div class="balken"><i id="balken1"></i></div>
-    </div>
-  </div>
   <canvas id="feld"></canvas>
   <div class="texte">
     <p class="hinweis" id="hinweis">…</p>
-    <p class="regel" id="regel">Berührt ein Korken ein Feld auch nur mit dem Rand, zählt es.
-      Liegt er auf zweien, zählt das wertvollere.</p>
+    <p class="regel" id="regel">Berührt ein Korken ein Feld auch nur mit dem Rand, zählt es –
+      und immer das wertvollere. Auf der eigenen Hälfte bekommt sie der Gegner.</p>
   </div>
   <div class="fuss">
     <button class="gross" id="knopf">Losschnippsen</button>
-    <button class="grau" id="neu">Neu</button>
+    <button class="gross grau" id="knopf2" hidden></button>
+  </div>
+  <div class="fuss">
+    <button class="grau klein" id="leer" hidden></button>
+    <button class="grau klein" id="neu">Neu</button>
   </div>
 </div>
 
@@ -89,9 +85,10 @@
 // denselben Modulen - hier steht nur die Bedienung.
 
 import {
-  initLeber, schuss, naechsteRunde, amZug, rundeVorbei, letzteBewegung,
-  pfeilRichtung, balkenKraft, istEntschieden, fortschritt, flaschenLeer,
-  PLAETZE, TEAM_NAME, ZIEL, FLASCHEN_JE_TEAM,
+  initLeber, schuss, naechsteRunde, amZug, letzteBewegung,
+  pfeilRichtung, balkenKraft, platzVon, teamPlaetze,
+  verteile, flascheLeer, leerBestaetigen, leerAblehnen,
+  PLAETZE, TEAM_NAME,
 } from "/game/leber.js";
 import { macheZeichner } from "/leber3d.js";
 
@@ -99,6 +96,8 @@ const cv = document.getElementById("feld");
 const summeEl = document.getElementById("summe");
 const hinweisEl = document.getElementById("hinweis");
 const knopfEl = document.getElementById("knopf");
+const knopf2El = document.getElementById("knopf2");
+const leerEl = document.getElementById("leer");
 const zeichner = macheZeichner(cv);
 
 const SPIELER = PLAETZE.map((p, i) => ({ id: "p" + i, name: `Spieler ${i + 1}` }));
@@ -109,36 +108,126 @@ let zielen = null;    // { nr, phase, t0, richtung, kraft }
 let abspielen = null; // { bilder, dt, start, i, korken }
 let getroffen = [];
 
+// Was die drei Knoepfe gerade tun. Auf einem Handy, das herumgereicht wird,
+// wechselt das staendig - deshalb steht die Bedeutung hier und nicht im HTML.
+let tun = { knopf: null, knopf2: null, leer: null };
+
 // ---------------------------------------------------------------------------
 // Zeichnen
 // ---------------------------------------------------------------------------
 
 /** Was der Zeichner sehen soll. Waehrend eines Schusses die Zwischenstaende. */
-function bild() {
-  return {
-    korken: abspielen?.korken ?? g.korken,
-    eigener: g.phase === "play" && !abspielen ? amZug(g) : -1,
-    zielen,
-    getroffen,
-  };
-}
+const bild = () => ({
+  korken: abspielen?.korken ?? g.korken,
+  eigener: g.phase === "play" && !abspielen ? amZug(g) : -1,
+  zielen,
+  getroffen,
+});
 
 const malen = () => zeichner.zeichne(bild());
 
-function tafel() {
+/** Einen Knopf beschriften und mit einer Aufgabe versehen - oder ausblenden. */
+function knopf(el, name, text, aufgabe) {
+  tun[name] = aufgabe ?? null;
+  el.textContent = text ?? "";
+  el.hidden = !aufgabe;
+}
+
+/** Wer die letzten Schluecke bekommen hat - kurz, damit alle es sehen. */
+function aufteilung() {
+  const v = g.letzte?.verteilt ?? [];
+  const teile = [0, 1]
+    .filter((t) => teamPlaetze(t).some((i) => v[i] > 0))
+    .map(
+      (t) =>
+        `${TEAM_NAME[t]}: ` +
+        teamPlaetze(t)
+          .filter((i) => v[i] > 0)
+          .map((i) => `${SPIELER[i].name} ${v[i]}`)
+          .join(" · ")
+    );
+  return teile.join("  |  ");
+}
+
+/** Alles, was nicht das Spielfeld ist: Texte und Knoepfe. */
+function anzeigen() {
   summeEl.textContent = g.runde;
-  for (const t of [0, 1]) {
-    const leer = flaschenLeer(g, t);
-    document.getElementById("zahl" + t).textContent =
-      `${g.getrunken[t]}/${ZIEL}` + (leer ? ` · ${leer}/${FLASCHEN_JE_TEAM} leer` : "");
-    const balken = document.getElementById("balken" + t);
-    if (balken.style) balken.style.width = Math.round(fortschritt(g, t) * 100) + "%";
-    const kasten = document.getElementById("team" + t);
-    if (kasten) {
-      const dran = g.phase === "play" && PLAETZE[amZug(g)]?.team === t;
-      kasten.className = `team t${t}` + (dran ? " dran" : "");
-    }
+  knopf(knopf2El, "knopf2", "", null);
+
+  // "Flasche leer" darf jeder, der schon getrunken hat und noch nicht fertig
+  // ist. Am gemeinsamen Handy nehmen wir den, der gerade gefragt ist.
+  const kandidaten = SPIELER.filter((p, i) => !g.fertig[i] && g.getrunken[i] >= 1);
+  const wer = kandidaten.find((p) => SPIELER.indexOf(p) === amZug(g)) ?? kandidaten[0];
+  if (g.phase === "leer" || g.phase === "finished" || !wer) knopf(leerEl, "leer", "", null);
+  else knopf(leerEl, "leer", `🍾 ${wer.name} leer`, () => tuIt(flascheLeer(g, wer.id)));
+
+  if (g.phase === "finished") {
+    hinweisEl.textContent = `${TEAM_NAME[g.sieger]} hat beide Flaschen leer. Gewonnen!`;
+    knopf(knopfEl, "knopf", "Neues Spiel", neuesSpiel);
+    return;
   }
+
+  if (g.phase === "leer") {
+    const nr = platzVon(g, g.leer.playerId);
+    const gegner = teamPlaetze(1 - PLAETZE[nr].team)[0];
+    hinweisEl.textContent = `${SPIELER[nr].name} sagt: Flasche leer. ${
+      TEAM_NAME[PLAETZE[gegner].team]
+    } bestätigen?`;
+    knopf(knopfEl, "knopf", "Stimmt", () => tuIt(leerBestaetigen(g, SPIELER[gegner].id)));
+    knopf(knopf2El, "knopf2", "Nee", () => tuIt(leerAblehnen(g, SPIELER[gegner].id)));
+    return;
+  }
+
+  if (g.phase === "verteilen") {
+    const team = g.offen[0] > 0 ? 0 : 1;
+    const [a, b] = teamPlaetze(team);
+    hinweisEl.textContent = `${TEAM_NAME[team]}: ${g.offen[team]} ${
+      g.offen[team] === 1 ? "Schluck" : "Schlücke"
+    } – wer trinkt?`;
+    knopf(knopfEl, "knopf", SPIELER[a].name + zusatz(a), () => tuIt(verteile(g, SPIELER[a].id, SPIELER[a].id)));
+    knopf(knopf2El, "knopf2", SPIELER[b].name + zusatz(b), () => tuIt(verteile(g, SPIELER[b].id, SPIELER[b].id)));
+    return;
+  }
+
+  if (g.phase === "rundenende") {
+    const mama = g.letzte?.mama;
+    const extra = mama?.[0] || mama?.[1]
+      ? `  ${TEAM_NAME[mama[0] ? 1 : 0]} ext beide Flaschen!`
+      : "";
+    hinweisEl.textContent = (aufteilung() || "Nichts getroffen.") + extra;
+    knopf(knopfEl, "knopf", "Weiter", () => {
+      g = naechsteRunde(g);
+      getroffen = [];
+      neuerZug();
+    });
+    return;
+  }
+
+  const nr = amZug(g);
+  if (zielen?.phase === "kraft") {
+    hinweisEl.textContent = "Kraft stoppen.";
+    knopf(knopfEl, "knopf", "Stopp", weiter);
+  } else if (zielen) {
+    hinweisEl.textContent = "Pfeil stoppen.";
+    knopf(knopfEl, "knopf", "Stopp", weiter);
+  } else {
+    hinweisEl.textContent = `${SPIELER[nr].name} ist dran – Korken ${wo(nr)}.`;
+    knopf(knopfEl, "knopf", "Losschnippsen", weiter);
+  }
+}
+
+const zusatz = (i) => (g.fertig[i] ? " (leer)" : g.letzte?.verteilt[i] ? ` ${g.letzte.verteilt[i]}` : "");
+
+/** Einen neuen Stand uebernehmen und alles nachziehen. */
+function tuIt(neuerStand) {
+  if (neuerStand === g) return;
+  g = neuerStand;
+  if (g.phase !== "play") {
+    getroffen = (g.letzte?.einzeln ?? []).filter(Boolean).map((w) => w.feld);
+    zeichner.kameraOben(g.reihe[g.reihe.length - 1]);
+  }
+  anzeigen();
+  malen();
 }
 
 // ---------------------------------------------------------------------------
@@ -149,11 +238,7 @@ function neuerZug() {
   const nr = amZug(g);
   if (nr === undefined) return;
   zeichner.kameraSpieler(nr);
-  hinweisEl.textContent =
-    `${SPIELER[nr].name} (${TEAM_NAME[PLAETZE[nr].team]}) ist dran – dein Korken sitzt ${wo(nr)}.`;
-  knopfEl.textContent = "Losschnippsen";
-  knopfEl.className = "gross";
-  tafel();
+  anzeigen();
   malen();
 }
 
@@ -167,34 +252,25 @@ function zielSchleife() {
 }
 
 function weiter() {
-  if (abspielen) return;
-
-  if (g.phase === "finished") return neuesSpiel();
-  if (g.phase === "rundenende") {
-    g = naechsteRunde(g);
-    getroffen = [];
-    return neuerZug();
-  }
+  if (abspielen || g.phase !== "play") return;
 
   if (zielen) {
-    // Wichtig: der Wert wird JETZT aus der Uhr gerechnet, nicht aus dem
-    // zuletzt gezeichneten Bild. Sonst entscheidet nicht der Moment des
-    // Drueckens, sondern wann der Browser zuletzt zum Zeichnen kam.
+    // Wichtig: der Wert wird JETZT aus der Uhr gerechnet, nicht aus dem zuletzt
+    // gezeichneten Bild. Sonst entscheidet nicht der Moment des Drueckens,
+    // sondern wann der Browser zuletzt zum Zeichnen kam.
     const seit = performance.now() - zielen.t0;
     if (zielen.phase === "richtung") {
       zielen.richtung = pfeilRichtung(g.korken, zielen.nr, seit);
       zielen.phase = "kraft";
       zielen.t0 = performance.now();
       zielen.kraft = 0;
-      hinweisEl.textContent = "Und jetzt die Kraft. Zu weit rechts fliegt er vom Tisch.";
-      knopfEl.textContent = "Stopp – Kraft";
+      anzeigen();
       return;
     }
     const { nr, richtung } = zielen;
     const kraft = balkenKraft(seit);
     zielen = null;
     hinweisEl.textContent = "…";
-    knopfEl.textContent = "…";
     g = schuss(g, SPIELER[nr].id, richtung, kraft);
     spieleAb();
     return;
@@ -204,15 +280,13 @@ function weiter() {
   if (nr === undefined || g.korken[nr]?.raus) return;
   zielen = { nr, phase: "richtung", t0: performance.now(), richtung: 0, kraft: 0 };
   getroffen = [];
-  hinweisEl.textContent = "Stopp drücken, wenn der Pfeil richtig steht.";
-  knopfEl.textContent = "Stopp – Richtung";
-  knopfEl.className = "gross stopp";
+  anzeigen();
   zielSchleife();
 }
 
 /**
- * Den letzten Schuss abspielen. Der Spielstand ist schon der von NACHHER -
- * die Animation legt sich nur darueber. Gerechnet wird mit 480 Schritten je
+ * Den letzten Schuss abspielen. Der Spielstand ist schon der von NACHHER - die
+ * Animation legt sich nur darueber. Gerechnet wird mit 480 Schritten je
  * Sekunde, das Bild kommt 60 mal: also wird zu jedem Bild der passende
  * Rechenschritt herausgesucht. Ein Schuss dauert dadurch genauso lange wie am
  * Tisch, eine gute halbe Sekunde.
@@ -246,28 +320,7 @@ function nachDemSchuss() {
   // Runde vorbei: von oben draufschauen, damit man sieht, wo alles liegt.
   getroffen = (g.letzte?.einzeln ?? []).filter(Boolean).map((w) => w.feld);
   zeichner.kameraOben(g.reihe[g.reihe.length - 1]);
-
-  const { schluecke, mama, einzeln } = g.letzte;
-  const teile = einzeln
-    .map((w, i) =>
-      w ? `${SPIELER[i].name}: ${w.feld.mama ? "Deine Mama!" : w.feld.name} für ${TEAM_NAME[w.team]}` : null
-    )
-    .filter(Boolean);
-  const summe = [0, 1].map((t) => `${TEAM_NAME[t]} ${schluecke[t]}`).join(" · ");
-  const mamaText =
-    mama[0] || mama[1] ? ` ${TEAM_NAME[mama[0] ? 1 : 0]} ext beide Flaschen und macht neue auf!` : "";
-
-  hinweisEl.textContent =
-    (teile.length ? teile.join(" · ") + " → " : "Nichts getroffen. ") + summe + " Schlücke." + mamaText;
-
-  if (istEntschieden(g)) {
-    hinweisEl.textContent = `${TEAM_NAME[g.sieger]} hat sein Bier leer. Gewonnen!`;
-    knopfEl.textContent = "Neues Spiel";
-  } else {
-    knopfEl.textContent = "Nächste Runde";
-  }
-  knopfEl.className = "gross";
-  tafel();
+  anzeigen();
   malen();
 }
 
@@ -279,8 +332,13 @@ function neuesSpiel() {
   neuerZug();
 }
 
-cv.addEventListener("pointerdown", weiter);
-knopfEl.addEventListener("click", weiter);
+/** Ein Tipp aufs Feld macht dasselbe wie der grosse Knopf. */
+const tippen = () => tun.knopf?.();
+
+cv.addEventListener("pointerdown", tippen);
+knopfEl.addEventListener("click", tippen);
+knopf2El.addEventListener("click", () => tun.knopf2?.());
+leerEl.addEventListener("click", () => tun.leer?.());
 document.getElementById("neu").addEventListener("click", neuesSpiel);
 window.addEventListener("resize", () => {
   zeichner.messen();

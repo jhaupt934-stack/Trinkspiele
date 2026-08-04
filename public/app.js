@@ -55,15 +55,13 @@ import {
   amZug as amZugLeber,
   currentPlayer as currentPlayerLeber,
   platzVon,
+  teamVon,
+  teamPlaetze,
   letzteBewegung,
   pfeilRichtung,
   balkenKraft,
-  fortschritt,
-  flaschenLeer,
   PLAETZE,
   TEAM_NAME,
-  ZIEL as LEBER_ZIEL,
-  FLASCHEN_JE_TEAM,
 } from "/game/leber.js";
 import { macheZeichner } from "/leber3d.js";
 import { applyAction, mayAct, wartetAuf, grenzen } from "/game/actions.js";
@@ -241,15 +239,23 @@ const REGELN = {
     andere Team <strong>ext beide Flaschen und macht neue auf</strong> – es
     fängt also wieder bei null an.</p>
 
+    <h3>Aufteilen</h3>
+    <p>Die Schlücke gehören dem <strong>Team</strong>. Nach jeder Runde macht ihr
+    selbst aus, wer davon wie viele trinkt – alle sehen die Aufteilung.</p>
+
     <h3>Am Ende</h3>
-    <p>Jedes Team hat ${FLASCHEN_JE_TEAM} Flaschen à ${LEBER_ZIEL / FLASCHEN_JE_TEAM}
-    Schlücke, macht ${LEBER_ZIEL}. Wer die zuerst zusammen hat, gewinnt.</p>`,
+    <p>Es gibt keinen Punktestand. Wer seine Flasche leer hat, drückt
+    <strong>„Flasche leer"</strong> – und das <strong>andere Team muss
+    bestätigen</strong>. Sonst könnte man einfach draufdrücken.</p>
+    <p>Gewonnen hat ein Team, wenn <strong>beide</strong> Flaschen leer sind.
+    Wer schon fertig ist, schnippst weiter mit, bekommt aber nichts mehr ab –
+    seine Schlücke gehen automatisch an den Partner.</p>`,
 };
 const regelnHtml = (id) => REGELN[id] ?? "<p>Für dieses Spiel gibt es noch keine Erklärung.</p>";
 
 // Steht unten auf der Startseite. Wenn etwas komisch aussieht, sagt diese
 // Nummer sofort, welche Fassung auf dem Handy wirklich laeuft.
-const VERSION = "v34";
+const VERSION = "v35";
 
 const el = document.getElementById("app");
 
@@ -679,16 +685,23 @@ function lobbyScreen() {
     const enough = anzahl >= gr.min && anzahl <= gr.max;
 
     const link = lobbyLink(S.lobby.code);
+
+    // Alles muss auf einen Bildschirm passen, ohne zu schieben. Deshalb steht
+    // hier nichts untereinander, was auch nebeneinander geht: Code neben dem
+    // QR-Bild, die Leute als Namensschilder statt als Liste, die Spiele im
+    // Raster statt in einer Reihe.
     return `
-      <h2>Eure Lobby</h2>
-      <div class="codebox"><div class="code">${S.lobby.code}</div></div>
+      <div class="lobbykopf">
+        <h2>Lobby</h2>
+        <button class="ghost small" data-a="leave">Verlassen</button>
+      </div>
 
       <div class="einladen">
         ${qrSvg(link)}
         <div class="dazu">
-          <p>Scannen oder den Code eintippen – beides landet in derselben Lobby.</p>
+          <div class="lcode">${S.lobby.code}</div>
           <div class="row">
-            <button class="secondary small" data-a="linkKopieren">🔗 Link kopieren</button>
+            <button class="secondary small" data-a="linkKopieren">🔗 Link</button>
             ${
               typeof navigator !== "undefined" && navigator.share
                 ? `<button class="secondary small" data-a="linkTeilen">Teilen</button>`
@@ -699,41 +712,36 @@ function lobbyScreen() {
       </div>
 
       ${!S.connected ? `<p class="error">Verbindung unterbrochen…</p>` : ""}
-      <p class="label">Dabei (${S.lobby.players.length})</p>
-      ${S.lobby.players
-        .map(
-          (p) => `
-        <div class="player-row">
-          ${avatar(p)}
-          <span class="name">${esc(p.name)}${p.id === S.myId ? " (du)" : ""}</span>
-          ${p.isHost ? `<span class="tag-host">Host</span>` : ""}
-          ${!p.connected ? `<span style="color:var(--danger);font-size:12px">offline</span>` : ""}
-        </div>`
-        )
-        .join("")}
+
+      <div class="leute">
+        ${S.lobby.players
+          .map(
+            (p) => `
+          <span class="schild ${p.id === S.myId ? "ich" : ""} ${p.connected ? "" : "weg"}">
+            ${avatar(p)}<b>${esc(p.name)}</b>${p.isHost ? `<i>Host</i>` : ""}
+          </span>`
+          )
+          .join("")}
+      </div>
 
       <p class="label">Dein Bild</p>
       ${avatarPicker(S.lobby.players, me?.avatar)}
 
-      <p class="label">${binHost ? "Spiel wählen" : `Spiel (wählt ${esc(hostNameLobby())})`}</p>
+      <p class="label">${binHost ? "Spiel" : `Spiel – wählt ${esc(hostNameLobby())}`}</p>
       ${gamePicker(spiel, binHost)}
       ${S.error ? `<p class="error">${esc(S.error)}</p>` : ""}
 
       <div class="actions">
-        ${
-          binHost
-            ? `<div class="row">
-                 <button class="secondary" data-a="rules" data-id="${spiel}">📖 Regeln</button>
-                 <button data-a="startOnline" ${enough ? "" : "disabled"}>${
-                 enough ? `${spielEmoji(spiel)} Starten` : spielerBedarf(spiel)
-               }</button>
-               </div>`
-            : `<div class="row">
-                 <button class="secondary" data-a="rules" data-id="${spiel}">📖 Regeln</button>
-                 <button class="secondary" disabled>Host startet…</button>
-               </div>`
-        }
-        <button class="ghost wide" data-a="leave">Lobby verlassen</button>
+        <div class="row">
+          <button class="secondary" data-a="rules" data-id="${spiel}">📖 Regeln</button>
+          ${
+            binHost
+              ? `<button data-a="startOnline" ${enough ? "" : "disabled"}>${
+                  enough ? `${spielEmoji(spiel)} Starten` : spielerBedarf(spiel)
+                }</button>`
+              : `<button class="secondary" disabled>Host startet…</button>`
+          }
+        </div>
       </div>`;
   }
 
@@ -2060,79 +2068,143 @@ function spielerBedarf(id) {
 }
 const passtDieZahl = (id, n) => n >= grenzen(id).min && n <= grenzen(id).max;
 
-/** Mein Platz am Tisch - online meiner, lokal der, der gerade dran ist. */
-const leberMeinPlatz = (g) => (S.mode === "online" ? platzVon(g, S.myId) : amZugLeber(g));
+
+/**
+ * Wer handelt gerade an diesem Geraet? Online immer ich; lokal wird das Handy
+ * herumgereicht, da darf der, der gerade gefragt ist.
+ */
+const leberIch = (g) => (S.mode === "online" ? S.myId : null);
+const leberDarf = (g, action, alsWer) =>
+  S.mode === "local" ? mayAct(g, alsWer, action) : mayAct(g, S.myId, action);
 
 function leberScreen(g) {
   const nr = amZugLeber(g);
   const dran = currentPlayerLeber(g);
-  const ichBinDran = g.phase === "play" && leberMeinPlatz(g) === nr;
+  const meinPlatz = S.mode === "online" ? platzVon(g, S.myId) : nr;
+  const meinTeam = PLAETZE[meinPlatz]?.team ?? null;
 
-  const tafel = [0, 1]
-    .map((t) => {
-      const leer = flaschenLeer(g, t);
-      const aktiv = g.phase === "play" && PLAETZE[nr]?.team === t;
-      return `
-        <div class="lteam t${t} ${aktiv ? "dran" : ""}">
-          <div class="lz"><b>${TEAM_NAME[t]}</b><span>${g.getrunken[t]}/${LEBER_ZIEL}${
-            leer ? ` · ${leer}/${FLASCHEN_JE_TEAM} leer` : ""
-          }</span></div>
-          <div class="lbalken"><i style="width:${Math.round(fortschritt(g, t) * 100)}%"></i></div>
-        </div>`;
-    })
-    .join("");
+  let text = "";
+  let knoepfe = "";
 
-  let text;
-  let knopf = "";
   if (g.phase === "finished") {
-    text = `<b>${TEAM_NAME[g.sieger]}</b> hat das Bier leer. Gewonnen!`;
+    text = `<b>${TEAM_NAME[g.sieger]}</b> hat beide Flaschen leer. Gewonnen!`;
+  } else if (g.phase === "leer") {
+    const wer = g.players[platzVon(g, g.leer.playerId)];
+    const gegner = teamPlaetze(1 - teamVon(g, g.leer.playerId));
+    const darfIch = leberDarf(g, { type: "leerJa" }, g.players[gegner[0]].id);
+    text = `<b>${esc(wer?.name ?? "")}</b> sagt: Flasche leer.`;
+    knoepfe = darfIch
+      ? `<div class="row">
+           <button class="secondary" data-a="leberNein" data-p="${g.players[gegner[0]].id}">Nee</button>
+           <button data-a="leberJa" data-p="${g.players[gegner[0]].id}">Stimmt</button>
+         </div>`
+      : `<p class="sub" style="margin:0">${TEAM_NAME[1 - teamVon(g, g.leer.playerId)]} muss bestätigen.</p>`;
+  } else if (g.phase === "verteilen") {
+    const dranTeam = g.offen[0] > 0 ? 0 : 1;
+    const darfIch = S.mode === "local" || meinTeam === dranTeam;
+    const wessen = S.mode === "local" ? dranTeam : meinTeam;
+
+    if (darfIch) {
+      const team = S.mode === "local" ? dranTeam : meinTeam;
+      text = `<b>${g.offen[team]}</b> ${g.offen[team] === 1 ? "Schluck" : "Schlücke"} – wer trinkt?`;
+      knoepfe =
+        `<div class="row">` +
+        teamPlaetze(team)
+          .map((i) => {
+            const p = g.players[i];
+            const zahl = g.letzte?.verteilt[i] ?? 0;
+            return g.fertig[i]
+              ? `<button class="secondary" disabled>${esc(p.name)} ist leer</button>`
+              : `<button data-a="leberGib" data-p="${p.id}">${esc(p.name)}${
+                  zahl ? ` <b>${zahl}</b>` : ""
+                }</button>`;
+          })
+          .join("") +
+        `</div>` +
+        (g.letzte?.verteilt.some((v) => v > 0)
+          ? `<button class="ghost wide" data-a="leberZurueck" data-p="${
+              g.players[teamPlaetze(team).find((i) => g.letzte.verteilt[i] > 0)].id
+            }">Zurück</button>`
+          : "");
+    } else {
+      text = `${TEAM_NAME[dranTeam]} teilt ${g.offen[dranTeam]} auf.`;
+    }
   } else if (g.phase === "rundenende") {
-    text = leberAbrechnung(g);
-    knopf = darfWeiterLeber(g)
-      ? `<button class="wide" data-a="leberAktion">Nächste Runde</button>`
-      : `<p class="sub">${esc(hostName(g))} klickt weiter…</p>`;
-  } else if (!ichBinDran) {
-    text = `${avatar(dran, true)} <b>${esc(dran?.name ?? "")}</b> ist dran (${TEAM_NAME[PLAETZE[nr].team]}).`;
+    text = leberSplit(g);
+    knoepfe = leberDarf(g, { type: "weiterLeber" }, g.players[0].id)
+      ? `<button class="wide" data-a="leberAktion">Weiter</button>`
+      : `<p class="sub" style="margin:0">${esc(hostName(g))} klickt weiter.</p>`;
+  } else if (meinPlatz !== nr) {
+    text = `${avatar(dran, true)} <b>${esc(dran?.name ?? "")}</b> ist dran.`;
   } else if (L.zielen?.phase === "kraft") {
-    text = "Und jetzt die Kraft. Zu weit rechts fliegt er vom Tisch.";
-    knopf = `<button class="wide stopp" data-a="leberAktion">Stopp – Kraft</button>`;
+    text = "Kraft stoppen.";
+    knoepfe = `<button class="wide stopp" data-a="leberAktion">Stopp</button>`;
   } else if (L.zielen) {
-    text = "Stopp drücken, wenn der Pfeil richtig steht.";
-    knopf = `<button class="wide stopp" data-a="leberAktion">Stopp – Richtung</button>`;
+    text = "Pfeil stoppen.";
+    knoepfe = `<button class="wide stopp" data-a="leberAktion">Stopp</button>`;
   } else {
     const platz = PLAETZE[nr];
-    text = `Du bist dran – dein Korken sitzt ${platz.seite === "nah" ? "vorne" : "hinten"} ${platz.hand}.`;
-    knopf = `<button class="wide" data-a="leberAktion">Losschnippsen</button>`;
+    text = `Du bist dran – ${platz.seite === "nah" ? "vorne" : "hinten"} ${platz.hand}.`;
+    knoepfe = `<button class="wide" data-a="leberAktion">Losschnippsen</button>`;
   }
 
   return `
-    <div class="lteams">${tafel}</div>
     <div id="leberBuehne" class="lbuehne"></div>
     <p class="lhinweis">${text}</p>
-    <p class="lregel">Berührt ein Korken ein Feld auch nur mit dem Rand, zählt es –
-      und immer das wertvollere. Auf der eigenen Hälfte bekommt sie der Gegner.</p>
-    <div class="actions">${knopf}</div>`;
+    ${leberMamaZeile(g)}
+    <div class="actions">${knoepfe}${leerKnopf(g)}</div>`;
 }
 
-/** Die Runde in Worten. */
-function leberAbrechnung(g) {
-  const { schluecke, mama, einzeln } = g.letzte ?? { schluecke: [0, 0], mama: [], einzeln: [] };
-  const teile = einzeln
-    .map((w, i) =>
-      w
-        ? `${esc(g.players[i]?.name ?? "")}: ${w.feld.mama ? "Deine Mama!" : w.feld.name} für ${TEAM_NAME[w.team]}`
-        : null
-    )
-    .filter(Boolean);
-  const summe = [0, 1].map((t) => `${TEAM_NAME[t]} ${schluecke[t]}`).join(" · ");
-  const exen = mama[0] || mama[1]
-    ? ` <b>${TEAM_NAME[mama[0] ? 1 : 0]} ext beide Flaschen und macht neue auf!</b>`
-    : "";
-  return (teile.length ? teile.join(" · ") + " → " : "Nichts getroffen. ") + summe + " Schlücke." + exen;
+/** Wie die letzten Schlücke aufgeteilt wurden - kurz und für alle sichtbar. */
+function leberSplit(g) {
+  const v = g.letzte?.verteilt ?? [];
+  const teile = [0, 1]
+    .filter((t) => teamPlaetze(t).some((i) => v[i] > 0))
+    .map((t) => {
+      const wer = teamPlaetze(t)
+        .filter((i) => v[i] > 0)
+        .map((i) => `${esc(g.players[i].name)} ${v[i]}`)
+        .join(" · ");
+      return `<b>${TEAM_NAME[t]}</b> ${wer}`;
+    });
+  return teile.length ? teile.join(" &nbsp;|&nbsp; ") : "Nichts getroffen.";
 }
 
-/** Die Abrechnung wegklicken darf der Host - lokal jeder. */
-const darfWeiterLeber = (g) => S.mode === "local" || !g.hostId || g.hostId === S.myId;
+/** "Deine Mama" ist die einzige Sache, die eine eigene Zeile wert ist. */
+function leberMamaZeile(g) {
+  const m = g.letzte?.mama;
+  if (!m || (!m[0] && !m[1]) || g.phase === "play" || g.phase === "finished") return "";
+  return `<p class="lregel"><b>${TEAM_NAME[m[0] ? 1 : 0]}</b> ext beide Flaschen und macht neue auf.</p>`;
+}
+
+/**
+ * "Flasche leer" - klein und unaufdringlich, aber immer erreichbar. Lokal
+ * stehen alle da, die schon getrunken haben; online nur man selbst.
+ */
+function leerKnopf(g) {
+  if (g.phase === "leer" || g.phase === "finished") return "";
+
+  const wer =
+    S.mode === "online"
+      ? mayAct(g, S.myId, { type: "flascheLeer" })
+        ? [g.players[platzVon(g, S.myId)]]
+        : []
+      : g.players.filter((p) => mayAct(g, p.id, { type: "flascheLeer" }));
+  if (!wer.length) return "";
+
+  return (
+    `<div class="lleer">` +
+    wer
+      .map(
+        (p) =>
+          `<button class="ghost small" data-a="leberLeer" data-p="${p.id}">🍾 ${
+            S.mode === "online" ? "Flasche leer" : esc(p.name) + " leer"
+          }</button>`
+      )
+      .join("") +
+    `</div>`
+  );
+}
 
 /**
  * Das Canvas in den frisch gezeichneten Platzhalter haengen und alles
@@ -2161,6 +2233,8 @@ function leberAnbauen(g) {
  */
 function leberKamera(g) {
   if (L.abspielen) return;
+  // Nur beim Schnippsen schaut man von seinem Platz - beim Abrechnen und
+  // Aufteilen von oben, da sieht man erst, wo alles liegt.
   const spielt = g.phase === "play";
   const nr = spielt ? amZugLeber(g) : g.reihe[g.reihe.length - 1];
   const art = (spielt ? "spieler" : "oben") + ":" + nr;
@@ -2241,16 +2315,17 @@ function leberAktion() {
   if (!g || g.game !== "leber" || L.abspielen) return;
 
   if (g.phase === "rundenende") {
-    if (darfWeiterLeber(g)) {
-      L.zielen = null;
-      dispatch({ type: "weiterLeber" });
+    L.zielen = null;
+    if (leberDarf(g, { type: "weiterLeber" }, g.players[0].id)) {
+      dispatch({ type: "weiterLeber", playerId: g.players[0].id });
     }
     return;
   }
   if (g.phase !== "play") return;
 
   const nr = amZugLeber(g);
-  if (leberMeinPlatz(g) !== nr || g.korken[nr]?.raus) return;
+  const meinPlatz = S.mode === "online" ? platzVon(g, S.myId) : nr;
+  if (meinPlatz !== nr || g.korken[nr]?.raus) return;
 
   if (L.zielen) {
     // Wichtig: der Wert wird JETZT aus der Uhr gerechnet, nicht aus dem
@@ -2438,6 +2513,24 @@ el.addEventListener("click", (e) => {
   switch (a) {
     case "leberAktion":
       leberAktion();
+      return;
+
+    // Die kleinen Leberschuss-Knoepfe tragen den Spieler im data-p, damit das
+    // auch am gemeinsam benutzten Handy eindeutig ist.
+    case "leberGib":
+      dispatch({ type: "verteileLeber", playerId: t.dataset.p, targetId: t.dataset.p });
+      return;
+    case "leberZurueck":
+      dispatch({ type: "verteilenZurueck", playerId: t.dataset.p, targetId: t.dataset.p });
+      return;
+    case "leberLeer":
+      dispatch({ type: "flascheLeer", playerId: t.dataset.p });
+      return;
+    case "leberJa":
+      dispatch({ type: "leerJa", playerId: t.dataset.p });
+      return;
+    case "leberNein":
+      dispatch({ type: "leerNein", playerId: t.dataset.p });
       return;
 
     case "saveName":
