@@ -45,6 +45,19 @@ export const PLAETZE = [
 ];
 
 /**
+ * Der Kapitaen jedes Teams: der linke Platz. Nur er teilt die Schluecke auf.
+ *
+ * Vorher durfte jeder aus dem Team tippen - zu zweit auf zwei Handys wurde
+ * daraus ein Wettrennen, bei dem keiner wusste, ob der andere gerade schon
+ * verteilt. Einer entscheidet, der andere sieht zu. Wer Kapitaen ist, macht
+ * ihr vor dem Spiel in der Lobby aus: es ist der, der auf dem linken Platz
+ * sitzt.
+ */
+export const KAPITAEN = [0, 2];
+export const istKapitaen = (g, playerId) => KAPITAEN.includes(platzVon(g, playerId));
+export const kapitaenVon = (g, team) => g.players[KAPITAEN[team]] ?? null;
+
+/**
  * Wer sitzt DIAGONAL gegenueber? Also ueber Eck, nicht direkt gegenueber:
  * Platz 0 (vorne links) und Platz 3 (hinten rechts) sind ein Paar.
  */
@@ -356,6 +369,7 @@ export function verteile(g, playerId, zielId) {
   const wer = platzVon(g, playerId);
   const ziel = platzVon(g, zielId);
   if (wer < 0 || ziel < 0) return g;
+  if (!KAPITAEN.includes(wer)) return g; // nur der Kapitaen teilt auf
 
   const team = PLAETZE[wer].team;
   if (PLAETZE[ziel].team !== team) return g; // nur im eigenen Team
@@ -380,6 +394,7 @@ export function verteilenZurueck(g, playerId, zielId) {
   const wer = platzVon(g, playerId);
   const ziel = platzVon(g, zielId);
   if (wer < 0 || ziel < 0) return g;
+  if (!KAPITAEN.includes(wer)) return g;
 
   const team = PLAETZE[wer].team;
   if (PLAETZE[ziel].team !== team) return g;
@@ -483,11 +498,11 @@ export function wartetAufLeber(g) {
     return g.antwort.map((a, nr) => (a === null ? g.players[nr]?.id : null)).filter(Boolean);
   }
 
-  // Aufteilen: BEIDE Teams gleichzeitig, jedes fuer sich.
+  // Aufteilen: BEIDE Teams gleichzeitig, aber je nur der Kapitaen.
   if (g.phase === "verteilen") {
     return [0, 1]
       .filter((t) => g.offen[t] > 0)
-      .flatMap((t) => teamPlaetze(t).map((i) => g.players[i]?.id))
+      .map((t) => kapitaenVon(g, t)?.id)
       .filter(Boolean);
   }
 

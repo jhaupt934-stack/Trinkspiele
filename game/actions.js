@@ -31,6 +31,7 @@ import {
   amZug as amZugLeber,
   antworte,
   darfBestaetigen,
+  istKapitaen,
   leerAblehnen,
   leerBestaetigen,
   platzVon,
@@ -197,6 +198,7 @@ function mayActLeber(g, playerId, action) {
     case "verteileLeber":
     case "verteilenZurueck": {
       if (g.phase !== "verteilen") return false;
+      if (!istKapitaen(g, playerId)) return false; // nur der Kapitaen teilt auf
       const meins = teamVon(g, playerId);
       if (meins === null || teamVon(g, action.targetId) !== meins) return false;
       return action.type === "verteileLeber"
