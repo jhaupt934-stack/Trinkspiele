@@ -27,6 +27,14 @@ import {
   weiterBuild,
   TIPPS,
 } from "./build.js";
+import {
+  amZug as amZugLeber,
+  naechsteRunde as naechsteRundeLeber,
+  platzVon,
+  schuss,
+  ueberspringenLeber,
+  wartetAufLeber,
+} from "./leber.js";
 import { canUndo, pendingFor as racePendingFor, undoSip } from "./sips.js";
 import {
   discardCard,
@@ -71,6 +79,7 @@ function wendeAn(g, action, actorId) {
   }
   if (g.game === "race") return applyRace(g, action, actorId);
   if (g.game === "build") return applyBuild(g, action, actorId);
+  if (g.game === "leber") return applyLeber(g, action, actorId);
 
   switch (action.type) {
     case "guess":
@@ -142,6 +151,44 @@ function applyBuild(g, action, actorId) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Leberschuss
+// ---------------------------------------------------------------------------
+
+function applyLeber(g, action, actorId) {
+  const wer = actorId ?? action.playerId;
+  switch (action.type) {
+    case "schuss":
+      return schuss(g, wer, Number(action.richtung), Number(action.kraft));
+    case "weiterLeber":
+      return naechsteRundeLeber(g);
+    default:
+      return g;
+  }
+}
+
+function mayActLeber(g, playerId, action) {
+  const istHost = !g.hostId || g.hostId === playerId;
+  switch (action.type) {
+    // Schnippsen darf nur, wer dran ist - und nur seinen eigenen Korken.
+    case "schuss":
+      return (
+        g.phase === "play" &&
+        platzVon(g, playerId) === amZugLeber(g) &&
+        Number.isFinite(Number(action.richtung)) &&
+        Number.isFinite(Number(action.kraft))
+      );
+
+    // Die Abrechnung wegklicken macht der Host, damit nicht vier Leute
+    // gleichzeitig weiterdruecken. Ohne Host (lokales Spiel) darf es jeder.
+    case "weiterLeber":
+      return g.phase === "rundenende" && istHost;
+
+    default:
+      return false;
+  }
+}
+
 function mayActBuild(g, playerId, action) {
   if (g.phase !== "play") return false;
   if (currentPlayer(g)?.id !== playerId) return false;
@@ -194,6 +241,7 @@ export function mayAct(g, playerId, action) {
   if (!g.players.some((p) => p.id === playerId)) return false;
   if (g.game === "race") return mayActRace(g, playerId, action);
   if (g.game === "build") return mayActBuild(g, playerId, action);
+  if (g.game === "leber") return mayActLeber(g, playerId, action);
 
   switch (action.type) {
     case "guess":
@@ -254,8 +302,21 @@ export function wartetAuf(g) {
   if (!g || g.phase === "finished") return [];
   if (g.game === "race") return wartetAufRace(g);
   if (g.game === "build") return wartetAufBuild(g);
+  if (g.game === "leber") return wartetAufLeber(g);
   return wartetAufBus(g);
 }
+
+/**
+ * Wie viele Leute braucht ein Spiel? Leberschuss ist 2 gegen 2 - da gibt es
+ * vier Ecken und vier Kronkorken, mehr oder weniger geht nicht.
+ */
+export const GRENZEN = {
+  bus: { min: 2, max: 8 },
+  race: { min: 2, max: 8 },
+  build: { min: 2, max: 8 },
+  leber: { min: 4, max: 4 },
+};
+export const grenzen = (spiel) => GRENZEN[spiel] ?? GRENZEN.bus;
 
 /**
  * Diesen Spieler ueberspringen, weil er zu lange weg ist. Was das genau
@@ -269,7 +330,9 @@ export function ueberspringen(g, playerId) {
       ? ueberspringenRace(g, playerId)
       : g.game === "build"
         ? ueberspringenBuild(g, playerId)
-        : ueberspringenBus(g, playerId);
+        : g.game === "leber"
+          ? ueberspringenLeber(g, playerId)
+          : ueberspringenBus(g, playerId);
   return next === g ? g : { ...next, rev: (g.rev ?? 0) + 1 };
 }
 
