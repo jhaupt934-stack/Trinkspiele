@@ -114,12 +114,18 @@ export const FELDER = [
 
 /**
  * Die Flaschen stehen in den beiden Aussparungen links und rechts von "Deine
- * Mama". Dazwischen bleiben 3,2 cm - ein Kronkorken ist 3 cm breit. Deshalb
- * trifft das fast nie jemand.
+ * Mama". `r` ist der halbe Durchmesser einer 0,33er - genau so dick, wie sie
+ * auch gezeichnet wird.
+ *
+ * Vorher stand hier die Groesse der AUSSPARUNG auf der Matte (3,9 cm). Der
+ * Korken prallte dadurch schon einen Zentimeter vor dem Glas ab, also sichtbar
+ * an nichts. Die Luecke zu "Deine Mama" wird damit breiter - genau so breit,
+ * wie sie zwischen zwei echten Flaschen eben ist.
  */
+export const FLASCHEN_R = 3.0;
 export const FLASCHEN = [
-  { x: 14.5, y: 111.4, r: 3.9 },
-  { x: 25.5, y: 111.4, r: 3.9 },
+  { x: 14.5, y: 111.4, r: FLASCHEN_R },
+  { x: 25.5, y: 111.4, r: FLASCHEN_R },
 ];
 
 /**

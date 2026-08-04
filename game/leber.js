@@ -167,7 +167,16 @@ export function schuss(g, playerId, richtung, kraft) {
 
   const vorher = g.korken.map((k) => ({ x: k.x, y: k.y, team: k.team, raus: k.raus }));
   const { ende } = schiesse(g.korken, nr, richtung, Math.max(0, Math.min(1, kraft)));
-  const korken = ende.map((k, i) => ({ x: k.x, y: k.y, team: g.korken[i].team, raus: k.raus }));
+  let korken = ende.map((k, i) => ({ x: k.x, y: k.y, team: g.korken[i].team, raus: k.raus }));
+
+  // Wer noch gar nicht dran war, darf nicht um seinen Zug gebracht werden:
+  // faellt sein Korken vom Tisch, kommt er zurueck in seine Ecke. Nur wer
+  // schon geschnippst hat, bleibt weg - sonst waere das Wegschiessen sinnlos.
+  const spaeter = new Set(g.reihe.slice(g.dran + 1));
+  korken = korken.map((k, i) => {
+    if (!k.raus || !spaeter.has(i) || vorher[i].raus) return k;
+    return { ...startKorken()[i], team: k.team };
+  });
 
   // Die Nummer zaehlt ueber das ganze Spiel durch und wird nie
   // zurueckgesetzt. Daran erkennt jedes Handy, ob ein Schuss neu ist und noch
