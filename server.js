@@ -17,10 +17,11 @@ import { Server } from "socket.io";
 import { initGame, MIN_PLAYERS, MAX_PLAYERS } from "./game/engine.js";
 import { initRace } from "./game/race.js";
 import { initBuild } from "./game/build.js";
-import { handleAction, ueberspringen, wartetAuf } from "./game/actions.js";
+import { initLeber } from "./game/leber.js";
+import { grenzen, handleAction, ueberspringen, wartetAuf } from "./game/actions.js";
 
 /** Welche Spiele es gibt. Ein neues Spiel braucht hier nur eine Zeile mehr. */
-const SPIELE = { bus: initGame, race: initRace, build: initBuild };
+const SPIELE = { bus: initGame, race: initRace, build: initBuild, leber: initLeber };
 const istSpiel = (s) => Object.prototype.hasOwnProperty.call(SPIELE, s);
 
 // Profilbilder: Gesichter mit verschiedenen Hauttoenen, Frisuren und Baerten,
@@ -292,11 +293,16 @@ io.on("connection", (socket) => {
     const { lobby, playerId } = found;
     const me = lobby.players.find((p) => p.id === playerId);
     if (!me?.isHost) return socket.emit("errorMsg", "Nur der Host kann starten.");
-    if (lobby.players.length < MIN_PLAYERS) {
-      return socket.emit("errorMsg", `Ihr braucht mindestens ${MIN_PLAYERS} Spieler.`);
-    }
     if (lobby.game) return;
     if (istSpiel(spiel)) lobby.spiel = spiel;
+
+    // Jedes Spiel hat seine eigene Spielerzahl: Leberschuss ist 2 gegen 2,
+    // da gibt es genau vier Ecken und vier Kronkorken.
+    const g = grenzen(lobby.spiel);
+    if (lobby.players.length < g.min || lobby.players.length > g.max) {
+      const wie = g.min === g.max ? `genau ${g.min}` : `${g.min} bis ${g.max}`;
+      return socket.emit("errorMsg", `Dafuer braucht ihr ${wie} Spieler.`);
+    }
     neueRunde(lobby);
   });
 
@@ -321,7 +327,10 @@ io.on("connection", (socket) => {
     if (istSpiel(spiel)) lobby.spiel = spiel;
     lobby.lastActivity = Date.now();
 
-    if (restart && lobby.players.length >= MIN_PLAYERS) return neueRunde(lobby);
+    const g2 = grenzen(lobby.spiel);
+    if (restart && lobby.players.length >= g2.min && lobby.players.length <= g2.max) {
+      return neueRunde(lobby);
+    }
     io.to(lobby.code).emit("lobby", lobbyView(lobby));
     io.to(lobby.code).emit("backToLobby");
   });
