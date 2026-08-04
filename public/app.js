@@ -50,7 +50,23 @@ import {
   TREFFER,
   DURCHGAENGE,
 } from "/game/build.js";
-import { applyAction, mayAct } from "/game/actions.js";
+import {
+  initLeber,
+  amZug as amZugLeber,
+  currentPlayer as currentPlayerLeber,
+  platzVon,
+  letzteBewegung,
+  pfeilRichtung,
+  balkenKraft,
+  fortschritt,
+  flaschenLeer,
+  PLAETZE,
+  TEAM_NAME,
+  ZIEL as LEBER_ZIEL,
+  FLASCHEN_JE_TEAM,
+} from "/game/leber.js";
+import { macheZeichner } from "/leber3d.js";
+import { applyAction, mayAct, wartetAuf, grenzen } from "/game/actions.js";
 import { isRed, suitSymbol, suitName } from "/game/deck.js";
 
 // ---------------------------------------------------------------------------
@@ -63,6 +79,7 @@ const SPIELE = [
   { id: "bus", emoji: "🚌", name: "Busfahren", kurz: "ca. 15 Min." },
   { id: "race", emoji: "🐎", name: "Pferderennen", kurz: "ca. 5 Min." },
   { id: "build", emoji: "🔼", name: "Drüber Drunter", kurz: "ca. 10 Min." },
+  { id: "leber", emoji: "🍾", name: "Leberschuss", kurz: "2 gegen 2" },
 ];
 const spielName = (id) => SPIELE.find((s) => s.id === id)?.name ?? "";
 const spielEmoji = (id) => SPIELE.find((s) => s.id === id)?.emoji ?? "🃏";
@@ -178,12 +195,61 @@ const REGELN = {
     <p>Jeder muss seine ${TREFFER} <strong>${DURCHGAENGE} Mal</strong> zusammen
     bekommen. Danach ist die Runde vorbei. In der Leiste oben steht bei jedem,
     wie viele Durchgänge er schon hat.</p>`,
+
+  leber: `
+    <h3>Worum geht's?</h3>
+    <p>Zwei gegen zwei um eine Matte herum. Jeder hat einen Kronkorken in seiner
+    Ecke und schnippst ihn auf die gegnerische Hälfte. <strong>Schlücke sind
+    Fortschritt</strong> – wer sein Bier zuerst leer hat, gewinnt.</p>
+
+    <h3>Reihenfolge</h3>
+    <p>Wer anfängt, wird ausgelost. Danach kommt der <strong>diagonal
+    Gegenüber</strong>, dann der Teampartner des Anfängers, zuletzt der
+    Übriggebliebene. Die Teams wechseln sich dadurch immer ab.</p>
+    <p>Nach diesen vier Schüssen wird abgerechnet, alle Korken kommen zurück in
+    die Ecken, und der Anfang wandert einen Platz weiter.</p>
+
+    <h3>Schnippsen</h3>
+    <p>Aussuchen musst du nichts – du schnippst immer deinen eigenen Korken, und
+    der ist gelb umringt. Dreimal drücken:</p>
+    <ol>
+      <li><strong>Losschnippsen.</strong></li>
+      <li>Der <strong>Pfeil</strong> schwingt hin und her. Stopp, wenn er
+      richtig steht.</li>
+      <li>Der <strong>Kraftbalken</strong> läuft hin und her. Nochmal Stopp.
+      Links zu lasch, rechts fliegt der Korken vom Tisch.</li>
+    </ol>
+    <p>Es gibt keine Bande: Wer zu fest schnippst, dessen Korken ist weg und
+    fällt für den Rest der Runde aus. Gegnerische Korken darf man wegschießen.</p>
+
+    <h3>Wertung</h3>
+    <p>Berührt ein Korken ein Feld auch nur mit dem Rand, zählt es. Liegt er auf
+    der Grenze zwischen zweien, zählt das <strong>wertvollere</strong>.</p>
+    <p>Entscheidend ist die Seite, nicht wem der Korken gehört:</p>
+    <ul>
+      <li>In einem Feld auf der <strong>gegnerischen</strong> Hälfte → die
+      Schlücke gehen an <strong>dein</strong> Team.</li>
+      <li>In einem Feld auf der <strong>eigenen</strong> Hälfte → sie gehen ans
+      <strong>Gegnerteam</strong>. Wer seinen Korken nicht über die Mitte
+      bekommt, verschenkt sie also.</li>
+    </ul>
+    <p>Nach jeder Runde schaut ihr von oben auf die Matte, und jedes getroffene
+    Feld leuchtet auf.</p>
+
+    <h3>Deine Mama</h3>
+    <p>Der rote Bereich ganz hinten zwischen den Flaschen schlägt alles: das
+    andere Team <strong>ext beide Flaschen und macht neue auf</strong> – es
+    fängt also wieder bei null an.</p>
+
+    <h3>Am Ende</h3>
+    <p>Jedes Team hat ${FLASCHEN_JE_TEAM} Flaschen à ${LEBER_ZIEL / FLASCHEN_JE_TEAM}
+    Schlücke, macht ${LEBER_ZIEL}. Wer die zuerst zusammen hat, gewinnt.</p>`,
 };
 const regelnHtml = (id) => REGELN[id] ?? "<p>Für dieses Spiel gibt es noch keine Erklärung.</p>";
 
 // Steht unten auf der Startseite. Wenn etwas komisch aussieht, sagt diese
 // Nummer sofort, welche Fassung auf dem Handy wirklich laeuft.
-const VERSION = "v32";
+const VERSION = "v34";
 
 const el = document.getElementById("app");
 
@@ -201,6 +267,33 @@ const saveName = (n) => localStorage.setItem(NAME_KEY, n.trim());
 const AV_KEY = "trinkspiele.avatar";
 const savedAvatar = () => localStorage.getItem(AV_KEY) ?? null;
 const saveAvatar = (a) => localStorage.setItem(AV_KEY, a);
+
+/**
+ * Der Link zur eigenen Lobby. Laeuft ueber dieselbe Adresse, unter der die App
+ * gerade laeuft - funktioniert also auch, wenn ihr sie im Heimnetz startet.
+ */
+function lobbyLink(code) {
+  const basis =
+    typeof location !== "undefined" && location.origin && location.origin !== "null"
+      ? location.origin + location.pathname.replace(/index\.html$/, "")
+      : "https://trinkspiele.org/";
+  return `${basis.replace(/\/+$/, "")}/?c=${code}`;
+}
+
+/**
+ * Kurz brummen lassen. Android kann das, Apple erlaubt es Webseiten nicht -
+ * dort passiert schlicht nichts, deshalb ohne Aufhebens.
+ */
+function brumm(muster) {
+  if (S.stumm) return;
+  try {
+    navigator.vibrate?.(muster);
+  } catch {
+    /* kein Grund, deshalb das Spiel abzubrechen */
+  }
+}
+
+const VIBRATION_KEY = "trinkspiele.vibration";
 
 const S = {
   // name | home | games | rules | setup | lobby | game
@@ -220,6 +313,8 @@ const S = {
   error: null,
   connected: false,
   sipSeen: 0, // hoechste bereits gezeigte Schluck-Meldung
+  stumm: localStorage.getItem(VIBRATION_KEY) === "aus",
+  warDran: false, // fuers Brummen: war ich beim letzten Zeichnen schon dran?
 };
 
 // ---------------------------------------------------------------------------
@@ -363,6 +458,8 @@ function checkSipToast(g) {
     const from = g.players.find((p) => p.id === e.fromId)?.name ?? "Jemand";
     toast(`${avatar(from)}<span><strong>${esc(from)}</strong> gibt dir
            <strong>${e.count} Schluck${e.count > 1 ? "e" : ""}</strong> 🍺</span>`);
+    // Zweimal kurz - man guckt beim Spielen ja nicht dauernd aufs Handy
+    brumm([40, 60, 40]);
   }
 }
 
@@ -416,6 +513,7 @@ function dispatch(action) {
 function neuesSpiel(id, players) {
   if (id === "race") return initRace(players);
   if (id === "build") return initBuild(players);
+  if (id === "leber") return initLeber(players);
   return initGame(players);
 }
 
@@ -424,6 +522,7 @@ function meId() {
   if (S.mode === "online") return S.myId;
   if (!S.game) return null;
   if (S.game.game === "build") return currentPlayer(S.game)?.id ?? S.game.players[0].id;
+  if (S.game.game === "leber") return currentPlayerLeber(S.game)?.id ?? S.game.players[0].id;
   return activePlayerId(S.game) ?? S.game.players[0].id;
 }
 
@@ -552,6 +651,11 @@ function setupScreen() {
     ${S.names.length < MAX_PLAYERS ? `<button class="secondary wide" data-a="add">+ Spieler</button>` : ""}
     <p class="label">Spiel</p>
     ${gamePicker(S.spiel)}
+    ${
+      passtDieZahl(S.spiel, S.names.length)
+        ? ""
+        : `<p class="error">${spielName(S.spiel)}: ${spielerBedarf(S.spiel)}</p>`
+    }
     <div class="actions">
       <div class="row">
         <button class="secondary" data-a="rules" data-id="${S.spiel}">📖 Regeln</button>
@@ -569,12 +673,30 @@ function lobbyScreen() {
   if (S.lobby) {
     const me = S.lobby.players.find((p) => p.id === S.myId);
     const binHost = !!me?.isHost;
-    const enough = S.lobby.players.length >= MIN_PLAYERS;
     const spiel = S.lobby.spiel ?? "bus";
+    const gr = grenzen(spiel);
+    const anzahl = S.lobby.players.length;
+    const enough = anzahl >= gr.min && anzahl <= gr.max;
 
+    const link = lobbyLink(S.lobby.code);
     return `
       <h2>Eure Lobby</h2>
       <div class="codebox"><div class="code">${S.lobby.code}</div></div>
+
+      <div class="einladen">
+        ${qrSvg(link)}
+        <div class="dazu">
+          <p>Scannen oder den Code eintippen – beides landet in derselben Lobby.</p>
+          <div class="row">
+            <button class="secondary small" data-a="linkKopieren">🔗 Link kopieren</button>
+            ${
+              typeof navigator !== "undefined" && navigator.share
+                ? `<button class="secondary small" data-a="linkTeilen">Teilen</button>`
+                : ""
+            }
+          </div>
+        </div>
+      </div>
 
       ${!S.connected ? `<p class="error">Verbindung unterbrochen…</p>` : ""}
       <p class="label">Dabei (${S.lobby.players.length})</p>
@@ -603,7 +725,7 @@ function lobbyScreen() {
             ? `<div class="row">
                  <button class="secondary" data-a="rules" data-id="${spiel}">📖 Regeln</button>
                  <button data-a="startOnline" ${enough ? "" : "disabled"}>${
-                 enough ? `${spielEmoji(spiel)} Starten` : `Min. ${MIN_PLAYERS} Spieler`
+                 enough ? `${spielEmoji(spiel)} Starten` : spielerBedarf(spiel)
                }</button>
                </div>`
             : `<div class="row">
@@ -1557,6 +1679,604 @@ function meBlock(me, active, zusatz = "du bist dran") {
 }
 
 // ---------------------------------------------------------------------------
+// QR-Code fuer den Lobby-Link
+// ---------------------------------------------------------------------------
+// Klein und selbstgebaut.
+//
+// Warum nicht eine fertige Bibliothek? Weil die App ohne Build-Schritt und
+// ohne fremde Server auskommen soll. Der Lobby-Link ist immer kurz (rund 30
+// Zeichen), deshalb reichen die Versionen 1 bis 4 mit der niedrigsten
+// Fehlerkorrektur - das ist ein Bruchteil dessen, was eine komplette
+// QR-Bibliothek kann.
+//
+// Geprueft wird das nicht am Code, sondern am Ergebnis: test-qr.js malt die
+// Codes als Bild und laesst sie von einem echten QR-Leser (OpenCV) einlesen.
+
+// Fuer jede Version: [Gesamt-Codewoerter, Datenwoerter bei Stufe L]
+// Bis Version 4 gibt es bei Stufe L genau einen Block, das macht es einfach.
+const VERSIONEN = [
+  null,
+  { total: 26, daten: 19 },
+  { total: 44, daten: 34 },
+  { total: 70, daten: 55 },
+  { total: 100, daten: 80 },
+];
+
+// Mittelpunkte der Ausrichtungsmuster je Version (Version 1 hat keine).
+const AUSRICHTUNG = [null, [], [6, 18], [6, 22], [6, 26]];
+
+// --- Rechnen im Galois-Feld GF(256) ----------------------------------------
+const EXP = new Uint8Array(512);
+const LOG = new Uint8Array(256);
+{
+  let x = 1;
+  for (let i = 0; i < 255; i++) {
+    EXP[i] = x;
+    LOG[x] = i;
+    x <<= 1;
+    if (x & 0x100) x ^= 0x11d;
+  }
+  for (let i = 255; i < 512; i++) EXP[i] = EXP[i - 255];
+}
+const mul = (a, b) => (a === 0 || b === 0 ? 0 : EXP[LOG[a] + LOG[b]]);
+
+/** Generatorpolynom fuer n Fehlerkorrektur-Woerter. */
+function generator(n) {
+  let g = [1];
+  for (let i = 0; i < n; i++) {
+    const next = new Array(g.length + 1).fill(0);
+    for (let j = 0; j < g.length; j++) {
+      next[j] ^= g[j];
+      next[j + 1] ^= mul(g[j], EXP[i]);
+    }
+    g = next;
+  }
+  return g;
+}
+
+/** Reed-Solomon: aus den Datenwoertern die Fehlerkorrektur-Woerter rechnen. */
+function fehlerkorrektur(daten, anzahl) {
+  const g = generator(anzahl);
+  const rest = new Array(anzahl).fill(0);
+  for (const wert of daten) {
+    const faktor = wert ^ rest[0];
+    rest.shift();
+    rest.push(0);
+    if (faktor !== 0) {
+      for (let i = 0; i < anzahl; i++) rest[i] ^= mul(g[i + 1], faktor);
+    }
+  }
+  return rest;
+}
+
+// --- Daten in Bits verpacken ------------------------------------------------
+
+/** Text als UTF-8-Bytes. */
+function bytes(text) {
+  if (typeof TextEncoder !== "undefined") return [...new TextEncoder().encode(text)];
+  return [...unescape(encodeURIComponent(text))].map((c) => c.charCodeAt(0));
+}
+
+function datenwoerter(text, version) {
+  const roh = bytes(text);
+  const platz = VERSIONEN[version].daten;
+  const bits = [];
+  const schreib = (wert, laenge) => {
+    for (let i = laenge - 1; i >= 0; i--) bits.push((wert >> i) & 1);
+  };
+
+  schreib(0b0100, 4); // Modus: einzelne Bytes
+  schreib(roh.length, 8); // Laengenangabe (bis Version 9: 8 Bit)
+  for (const b of roh) schreib(b, 8);
+
+  // Abschluss, dann auf volle Bytes auffuellen
+  for (let i = 0; i < 4 && bits.length < platz * 8; i++) bits.push(0);
+  while (bits.length % 8 !== 0) bits.push(0);
+
+  const woerter = [];
+  for (let i = 0; i < bits.length; i += 8) {
+    woerter.push(bits.slice(i, i + 8).reduce((s, b) => (s << 1) | b, 0));
+  }
+  // Rest mit dem vorgeschriebenen Muster fuellen
+  const fueller = [0xec, 0x11];
+  while (woerter.length < platz) woerter.push(fueller[(woerter.length - Math.ceil(bits.length / 8)) % 2]);
+  return woerter;
+}
+
+/** Die kleinste Version, in die der Text passt. */
+function passendeVersion(text) {
+  const laenge = bytes(text).length;
+  for (let v = 1; v < VERSIONEN.length; v++) {
+    if (2 + laenge <= VERSIONEN[v].daten) return v;
+  }
+  return null;
+}
+
+// --- Das Muster aufbauen ----------------------------------------------------
+
+function leeresRaster(groesse) {
+  return {
+    feld: Array.from({ length: groesse }, () => new Array(groesse).fill(0)),
+    fest: Array.from({ length: groesse }, () => new Array(groesse).fill(false)),
+    groesse,
+  };
+}
+
+function setz(r, x, y, wert, fest = true) {
+  if (x < 0 || y < 0 || x >= r.groesse || y >= r.groesse) return;
+  r.feld[y][x] = wert ? 1 : 0;
+  r.fest[y][x] = fest;
+}
+
+/** Die drei grossen Ecken plus ihr weisser Rand. */
+function suchmuster(r, x0, y0) {
+  for (let dy = -1; dy <= 7; dy++) {
+    for (let dx = -1; dx <= 7; dx++) {
+      const rand = dx === -1 || dx === 7 || dy === -1 || dy === 7;
+      const aussen = dx === 0 || dx === 6 || dy === 0 || dy === 6;
+      const innen = dx >= 2 && dx <= 4 && dy >= 2 && dy <= 4;
+      setz(r, x0 + dx, y0 + dy, !rand && (aussen || innen));
+    }
+  }
+}
+
+function grundmuster(version) {
+  const groesse = 17 + 4 * version;
+  const r = leeresRaster(groesse);
+
+  suchmuster(r, 0, 0);
+  suchmuster(r, groesse - 7, 0);
+  suchmuster(r, 0, groesse - 7);
+
+  // Taktleisten
+  for (let i = 8; i < groesse - 8; i++) {
+    setz(r, i, 6, i % 2 === 0);
+    setz(r, 6, i, i % 2 === 0);
+  }
+
+  // Ausrichtungsmuster
+  const mitten = AUSRICHTUNG[version];
+  for (const cy of mitten) {
+    for (const cx of mitten) {
+      const beiSuchmuster =
+        (cx <= 8 && cy <= 8) || (cx <= 8 && cy >= groesse - 9) || (cx >= groesse - 9 && cy <= 8);
+      if (beiSuchmuster) continue;
+      for (let dy = -2; dy <= 2; dy++) {
+        for (let dx = -2; dx <= 2; dx++) {
+          const ring = Math.max(Math.abs(dx), Math.abs(dy));
+          setz(r, cx + dx, cy + dy, ring !== 1);
+        }
+      }
+    }
+  }
+
+  // Immer dunkel
+  setz(r, 8, groesse - 8, 1);
+
+  // Plaetze fuer die Formatangabe freihalten
+  for (let i = 0; i < 9; i++) {
+    if (i !== 6) {
+      setz(r, i, 8, 0);
+      setz(r, 8, i, 0);
+    }
+  }
+  for (let i = 0; i < 8; i++) {
+    setz(r, groesse - 1 - i, 8, 0);
+    setz(r, 8, groesse - 1 - i, 0);
+  }
+  return r;
+}
+
+/** Die Codewoerter im Zickzack von rechts unten nach oben einfuellen. */
+function fuelle(r, woerter) {
+  const bits = [];
+  for (const w of woerter) for (let i = 7; i >= 0; i--) bits.push((w >> i) & 1);
+
+  let bit = 0;
+  let hoch = true;
+  for (let rechts = r.groesse - 1; rechts > 0; rechts -= 2) {
+    if (rechts === 6) rechts--; // die senkrechte Taktleiste ueberspringen
+    for (let n = 0; n < r.groesse; n++) {
+      const y = hoch ? r.groesse - 1 - n : n;
+      for (const x of [rechts, rechts - 1]) {
+        if (r.fest[y][x]) continue;
+        r.feld[y][x] = bit < bits.length ? bits[bit] : 0;
+        bit++;
+      }
+    }
+    hoch = !hoch;
+  }
+}
+
+const MASKEN = [
+  (x, y) => (x + y) % 2 === 0,
+  (x, y) => y % 2 === 0,
+  (x) => x % 3 === 0,
+  (x, y) => (x + y) % 3 === 0,
+  (x, y) => (Math.floor(y / 2) + Math.floor(x / 3)) % 2 === 0,
+  (x, y) => ((x * y) % 2) + ((x * y) % 3) === 0,
+  (x, y) => (((x * y) % 2) + ((x * y) % 3)) % 2 === 0,
+  (x, y) => (((x + y) % 2) + ((x * y) % 3)) % 2 === 0,
+];
+
+/** Formatangabe: Fehlerkorrektur-Stufe L und die Maskennummer, mit BCH-Schutz. */
+function formatBits(maske) {
+  let wert = (0b01 << 3) | maske; // 01 = Stufe L
+  let rest = wert << 10;
+  for (let i = 14; i >= 10; i--) {
+    if ((rest >> i) & 1) rest ^= 0b10100110111 << (i - 10);
+  }
+  return ((wert << 10) | rest) ^ 0b101010000010010;
+}
+
+function setzeFormat(r, maske) {
+  const bits = formatBits(maske);
+  const b = (i) => (bits >> i) & 1;
+  for (let i = 0; i <= 5; i++) setz(r, 8, i, b(i));
+  setz(r, 8, 7, b(6));
+  setz(r, 8, 8, b(7));
+  setz(r, 7, 8, b(8));
+  for (let i = 9; i <= 14; i++) setz(r, 14 - i, 8, b(i));
+
+  for (let i = 0; i <= 7; i++) setz(r, r.groesse - 1 - i, 8, b(i));
+  for (let i = 8; i <= 14; i++) setz(r, 8, r.groesse - 15 + i, b(i));
+  setz(r, 8, r.groesse - 8, 1);
+}
+
+/** Wie unschoen ist dieses Muster? Je kleiner, desto besser lesbar. */
+function strafe(feld) {
+  const n = feld.length;
+  let punkte = 0;
+
+  const reihe = (hol) => {
+    for (let a = 0; a < n; a++) {
+      let lauf = 1;
+      for (let b = 1; b < n; b++) {
+        if (hol(a, b) === hol(a, b - 1)) {
+          lauf++;
+        } else {
+          if (lauf >= 5) punkte += lauf - 2;
+          lauf = 1;
+        }
+      }
+      if (lauf >= 5) punkte += lauf - 2;
+    }
+  };
+  reihe((y, x) => feld[y][x]);
+  reihe((x, y) => feld[y][x]);
+
+  for (let y = 0; y < n - 1; y++) {
+    for (let x = 0; x < n - 1; x++) {
+      const s = feld[y][x] + feld[y][x + 1] + feld[y + 1][x] + feld[y + 1][x + 1];
+      if (s === 0 || s === 4) punkte += 3;
+    }
+  }
+
+  const muster = [1, 0, 1, 1, 1, 0, 1, 0, 0, 0, 0];
+  const gedreht = [0, 0, 0, 0, 1, 0, 1, 1, 1, 0, 1];
+  const suche = (hol) => {
+    for (let a = 0; a < n; a++) {
+      for (let b = 0; b + 11 <= n; b++) {
+        const teil = Array.from({ length: 11 }, (_, i) => hol(a, b + i));
+        if (teil.every((v, i) => v === muster[i]) || teil.every((v, i) => v === gedreht[i])) {
+          punkte += 40;
+        }
+      }
+    }
+  };
+  suche((y, x) => feld[y][x]);
+  suche((x, y) => feld[y][x]);
+
+  const dunkel = feld.flat().reduce((s, v) => s + v, 0);
+  const anteil = (dunkel * 100) / (n * n);
+  punkte += Math.floor(Math.abs(anteil - 50) / 5) * 10;
+  return punkte;
+}
+
+/**
+ * Erzeugt die Matrix zum Text: ein Array aus Zeilen, jede Zeile ein Array aus
+ * 0 und 1. Gibt null zurueck, wenn der Text zu lang ist.
+ */
+function qrMatrix(text) {
+  const version = passendeVersion(text);
+  if (!version) return null;
+
+  const daten = datenwoerter(text, version);
+  const ec = fehlerkorrektur(daten, VERSIONEN[version].total - VERSIONEN[version].daten);
+  const woerter = [...daten, ...ec];
+
+  let bestes = null;
+  let bestePunkte = Infinity;
+  for (let maske = 0; maske < 8; maske++) {
+    const r = grundmuster(version);
+    fuelle(r, woerter);
+    for (let y = 0; y < r.groesse; y++) {
+      for (let x = 0; x < r.groesse; x++) {
+        if (!r.fest[y][x] && MASKEN[maske](x, y)) r.feld[y][x] ^= 1;
+      }
+    }
+    setzeFormat(r, maske);
+    const punkte = strafe(r.feld);
+    if (punkte < bestePunkte) {
+      bestePunkte = punkte;
+      bestes = r.feld;
+    }
+  }
+  return bestes;
+}
+
+/**
+ * Fertiges SVG. `rand` ist die weisse Zone drumherum - ohne die findet kein
+ * Leser den Code.
+ */
+function qrSvg(text, { rand = 3, klasse = "qr" } = {}) {
+  const m = qrMatrix(text);
+  if (!m) return "";
+  const n = m.length;
+  const gesamt = n + rand * 2;
+
+  let pfad = "";
+  for (let y = 0; y < n; y++) {
+    for (let x = 0; x < n; x++) {
+      if (m[y][x]) pfad += `M${x + rand} ${y + rand}h1v1h-1z`;
+    }
+  }
+  return (
+    `<svg class="${klasse}" viewBox="0 0 ${gesamt} ${gesamt}" xmlns="http://www.w3.org/2000/svg" ` +
+    `shape-rendering="crispEdges" role="img" aria-label="QR-Code zur Lobby">` +
+    `<rect width="${gesamt}" height="${gesamt}" fill="#fff"/>` +
+    `<path d="${pfad}" fill="#000"/></svg>`
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Leberschuss
+// ---------------------------------------------------------------------------
+//
+// Anders als die Kartenspiele lebt Leberschuss auf einem Canvas, und das
+// vertraegt sich schlecht mit dem sonstigen Vorgehen ("bei jeder Aenderung das
+// ganze HTML neu schreiben"): ein neues Canvas waere jedes Mal leer und der
+// vorgebackene Hintergrund weg.
+//
+// Deshalb gibt es genau EIN Canvas, das ausserhalb der Seite lebt und nach
+// jedem Neuzeichnen wieder in seinen Platzhalter gehaengt wird. Zeichner,
+// Zielvorgang und laufende Animation haengen daran.
+
+const L = {
+  cv: null,        // das dauerhafte Canvas
+  zeichner: null,
+  zielen: null,    // { nr, phase, t0, richtung, kraft }
+  abspielen: null, // laufende Schussanimation
+  gezeigt: 0,      // welcher Schuss schon abgespielt wurde
+  kamera: null,    // was gerade eingestellt ist
+  breite: 0,
+  hoehe: 0,
+};
+
+/** Wie viele Leute braucht das Spiel? Fuer Knoepfe und Fehlermeldungen. */
+function spielerBedarf(id) {
+  const g = grenzen(id);
+  return g.min === g.max ? `genau ${g.min} Spieler` : `${g.min} bis ${g.max} Spieler`;
+}
+const passtDieZahl = (id, n) => n >= grenzen(id).min && n <= grenzen(id).max;
+
+/** Mein Platz am Tisch - online meiner, lokal der, der gerade dran ist. */
+const leberMeinPlatz = (g) => (S.mode === "online" ? platzVon(g, S.myId) : amZugLeber(g));
+
+function leberScreen(g) {
+  const nr = amZugLeber(g);
+  const dran = currentPlayerLeber(g);
+  const ichBinDran = g.phase === "play" && leberMeinPlatz(g) === nr;
+
+  const tafel = [0, 1]
+    .map((t) => {
+      const leer = flaschenLeer(g, t);
+      const aktiv = g.phase === "play" && PLAETZE[nr]?.team === t;
+      return `
+        <div class="lteam t${t} ${aktiv ? "dran" : ""}">
+          <div class="lz"><b>${TEAM_NAME[t]}</b><span>${g.getrunken[t]}/${LEBER_ZIEL}${
+            leer ? ` · ${leer}/${FLASCHEN_JE_TEAM} leer` : ""
+          }</span></div>
+          <div class="lbalken"><i style="width:${Math.round(fortschritt(g, t) * 100)}%"></i></div>
+        </div>`;
+    })
+    .join("");
+
+  let text;
+  let knopf = "";
+  if (g.phase === "finished") {
+    text = `<b>${TEAM_NAME[g.sieger]}</b> hat das Bier leer. Gewonnen!`;
+  } else if (g.phase === "rundenende") {
+    text = leberAbrechnung(g);
+    knopf = darfWeiterLeber(g)
+      ? `<button class="wide" data-a="leberAktion">Nächste Runde</button>`
+      : `<p class="sub">${esc(hostName(g))} klickt weiter…</p>`;
+  } else if (!ichBinDran) {
+    text = `${avatar(dran, true)} <b>${esc(dran?.name ?? "")}</b> ist dran (${TEAM_NAME[PLAETZE[nr].team]}).`;
+  } else if (L.zielen?.phase === "kraft") {
+    text = "Und jetzt die Kraft. Zu weit rechts fliegt er vom Tisch.";
+    knopf = `<button class="wide stopp" data-a="leberAktion">Stopp – Kraft</button>`;
+  } else if (L.zielen) {
+    text = "Stopp drücken, wenn der Pfeil richtig steht.";
+    knopf = `<button class="wide stopp" data-a="leberAktion">Stopp – Richtung</button>`;
+  } else {
+    const platz = PLAETZE[nr];
+    text = `Du bist dran – dein Korken sitzt ${platz.seite === "nah" ? "vorne" : "hinten"} ${platz.hand}.`;
+    knopf = `<button class="wide" data-a="leberAktion">Losschnippsen</button>`;
+  }
+
+  return `
+    <div class="lteams">${tafel}</div>
+    <div id="leberBuehne" class="lbuehne"></div>
+    <p class="lhinweis">${text}</p>
+    <p class="lregel">Berührt ein Korken ein Feld auch nur mit dem Rand, zählt es –
+      und immer das wertvollere. Auf der eigenen Hälfte bekommt sie der Gegner.</p>
+    <div class="actions">${knopf}</div>`;
+}
+
+/** Die Runde in Worten. */
+function leberAbrechnung(g) {
+  const { schluecke, mama, einzeln } = g.letzte ?? { schluecke: [0, 0], mama: [], einzeln: [] };
+  const teile = einzeln
+    .map((w, i) =>
+      w
+        ? `${esc(g.players[i]?.name ?? "")}: ${w.feld.mama ? "Deine Mama!" : w.feld.name} für ${TEAM_NAME[w.team]}`
+        : null
+    )
+    .filter(Boolean);
+  const summe = [0, 1].map((t) => `${TEAM_NAME[t]} ${schluecke[t]}`).join(" · ");
+  const exen = mama[0] || mama[1]
+    ? ` <b>${TEAM_NAME[mama[0] ? 1 : 0]} ext beide Flaschen und macht neue auf!</b>`
+    : "";
+  return (teile.length ? teile.join(" · ") + " → " : "Nichts getroffen. ") + summe + " Schlücke." + exen;
+}
+
+/** Die Abrechnung wegklicken darf der Host - lokal jeder. */
+const darfWeiterLeber = (g) => S.mode === "local" || !g.hostId || g.hostId === S.myId;
+
+/**
+ * Das Canvas in den frisch gezeichneten Platzhalter haengen und alles
+ * nachziehen. Wird nach jedem render() aufgerufen.
+ */
+function leberAnbauen(g) {
+  const buehne = document.getElementById("leberBuehne");
+  if (!buehne) return;
+
+  if (!L.cv) {
+    L.cv = document.createElement("canvas");
+    L.cv.className = "lfeld";
+    L.cv.addEventListener("pointerdown", leberAktion);
+  }
+  if (L.cv.parentNode !== buehne) buehne.appendChild(L.cv);
+  if (!L.zeichner) L.zeichner = macheZeichner(L.cv);
+
+  leberPruefeSchuss(g);
+  leberKamera(g);
+  leberZeichnen(g);
+}
+
+/**
+ * Kamera stellen. Waehrend ein Schuss laeuft bleibt sie stehen - sonst
+ * sprænge man mitten in der Bewegung in die Draufsicht.
+ */
+function leberKamera(g) {
+  if (L.abspielen) return;
+  const spielt = g.phase === "play";
+  const nr = spielt ? amZugLeber(g) : g.reihe[g.reihe.length - 1];
+  const art = (spielt ? "spieler" : "oben") + ":" + nr;
+  const b = L.cv.getBoundingClientRect();
+  if (art === L.kamera && b.width === L.breite && b.height === L.hoehe) return;
+
+  L.kamera = art;
+  L.breite = b.width;
+  L.hoehe = b.height;
+  if (spielt) L.zeichner.kameraSpieler(nr);
+  else L.zeichner.kameraOben(nr);
+}
+
+function leberZeichnen(g) {
+  if (!L.zeichner) return;
+  L.zeichner.zeichne({
+    korken: L.abspielen?.korken ?? g.korken,
+    eigener: g.phase === "play" && !L.abspielen ? amZugLeber(g) : -1,
+    zielen: L.zielen,
+    getroffen:
+      g.phase === "play" || L.abspielen
+        ? []
+        : (g.letzte?.einzeln ?? []).filter(Boolean).map((w) => w.feld),
+  });
+}
+
+/**
+ * Ist ein Schuss dazugekommen, den wir noch nicht gezeigt haben? Das gilt fuer
+ * den eigenen genauso wie fuer die der anderen: aus (Richtung, Kraft) und der
+ * Ausgangslage rechnet jedes Handy dieselbe Bahn nach.
+ */
+function leberPruefeSchuss(g) {
+  const n = g.schuss?.nummer ?? 0;
+  if (n <= L.gezeigt || L.abspielen) return;
+  L.gezeigt = n;
+  const bewegung = letzteBewegung(g);
+  if (!bewegung) return;
+  L.abspielen = { ...bewegung, start: undefined, korken: g.korken };
+  requestAnimationFrame(leberLauf);
+}
+
+function leberLauf(jetzt) {
+  const a = L.abspielen;
+  const g = S.game;
+  if (!a || !g || g.game !== "leber") {
+    L.abspielen = null;
+    return;
+  }
+  if (a.start === undefined) a.start = jetzt;
+
+  const i = Math.max(0, Math.min(Math.round((jetzt - a.start) / 1000 / a.dt), a.bilder.length - 1));
+  a.korken = a.bilder[i].map((p, n) => ({ ...g.korken[n], x: p.x, y: p.y, raus: p.raus }));
+  leberZeichnen(g);
+
+  if (i >= a.bilder.length - 1) {
+    L.abspielen = null;
+    return render();
+  }
+  requestAnimationFrame(leberLauf);
+}
+
+/** Der Zielpfeil bzw. der Kraftbalken schwingt. */
+function leberSchleife() {
+  if (!L.zielen || !S.game) return;
+  const seit = performance.now() - L.zielen.t0;
+  if (L.zielen.phase === "richtung") {
+    L.zielen.richtung = pfeilRichtung(S.game.korken, L.zielen.nr, seit);
+  } else {
+    L.zielen.kraft = balkenKraft(seit);
+  }
+  leberZeichnen(S.game);
+  requestAnimationFrame(leberSchleife);
+}
+
+/** Ein Tipp aufs Feld oder auf den Knopf - beides tut dasselbe. */
+function leberAktion() {
+  const g = S.game;
+  if (!g || g.game !== "leber" || L.abspielen) return;
+
+  if (g.phase === "rundenende") {
+    if (darfWeiterLeber(g)) {
+      L.zielen = null;
+      dispatch({ type: "weiterLeber" });
+    }
+    return;
+  }
+  if (g.phase !== "play") return;
+
+  const nr = amZugLeber(g);
+  if (leberMeinPlatz(g) !== nr || g.korken[nr]?.raus) return;
+
+  if (L.zielen) {
+    // Wichtig: der Wert wird JETZT aus der Uhr gerechnet, nicht aus dem
+    // zuletzt gezeichneten Bild. Sonst entscheidet nicht der Moment des
+    // Drueckens, sondern wann der Browser zuletzt zum Zeichnen kam.
+    const seit = performance.now() - L.zielen.t0;
+    if (L.zielen.phase === "richtung") {
+      L.zielen.richtung = pfeilRichtung(g.korken, L.zielen.nr, seit);
+      L.zielen.phase = "kraft";
+      L.zielen.t0 = performance.now();
+      L.zielen.kraft = 0;
+      return render();
+    }
+    const { richtung } = L.zielen;
+    const kraft = balkenKraft(seit);
+    L.zielen = null;
+    dispatch({ type: "schuss", playerId: g.players[nr].id, richtung, kraft });
+    return;
+  }
+
+  L.zielen = { nr, phase: "richtung", t0: performance.now(), richtung: 0, kraft: 0 };
+  leberSchleife();
+  render();
+}
+
+// ---------------------------------------------------------------------------
 // Zeichnen
 // ---------------------------------------------------------------------------
 
@@ -1575,6 +2295,8 @@ function render() {
   } else if (S.game?.game === "build") {
     const g = S.game;
     html = g.phase === "play" ? buildScreen(g) : resultScreen(g);
+  } else if (S.game?.game === "leber") {
+    html = leberScreen(S.game);
   } else if (S.game) {
     const g = S.game;
     if (g.phase === "guess") html = guessScreen(g);
@@ -1590,6 +2312,7 @@ function render() {
     html += `<div class="offline-bar">Keine Verbindung – versuche neu zu verbinden…</div>`;
   }
   el.innerHTML = html;
+  if (S.screen === "game" && S.game?.game === "leber") leberAnbauen(S.game);
 
   clearTimeout(tickTimer);
   if (S.screen === "game" && S.game?.game !== "race" && S.game?.phase === "rows") {
@@ -1599,11 +2322,35 @@ function render() {
 
   const focusMe = document.getElementById("nameInput") ?? document.getElementById("codeInput");
   if (S.screen === "name") focusMe?.focus();
+
+  // Bin ich gerade neu an der Reihe? Dann einmal laenger brummen. Nur online -
+  // lokal reicht man das Handy ja weiter und sieht es sowieso.
+  const dran =
+    S.mode === "online" &&
+    S.screen === "game" &&
+    !!S.game &&
+    S.game.phase !== "finished" &&
+    (wartetAuf(S.game) ?? []).includes(S.myId);
+  if (dran && !S.warDran) brumm(150);
+  S.warDran = dran;
 }
 
 // ---------------------------------------------------------------------------
 // Netzwerk
 // ---------------------------------------------------------------------------
+
+/** In die Lobby mit dem Code aus S.code. Wird vom Knopf und vom Link benutzt. */
+function beitreten() {
+  if (S.code.length < 4) {
+    S.error = "Bitte den vierstelligen Code eintragen.";
+    return render();
+  }
+  connect().emit("joinLobby", { code: S.code, name: S.name.trim(), avatar: savedAvatar() }, (res) => {
+    if (res.ok) Object.assign(S, { myId: res.playerId, lobby: res.lobby, connected: true });
+    else S.error = res.error;
+    render();
+  });
+}
 
 function connect() {
   if (S.socket) return S.socket;
@@ -1689,6 +2436,10 @@ el.addEventListener("click", (e) => {
   S.error = null;
 
   switch (a) {
+    case "leberAktion":
+      leberAktion();
+      return;
+
     case "saveName":
       if (!S.name.trim()) {
         S.error = "Bitte trag einen Namen ein.";
@@ -1696,6 +2447,12 @@ el.addEventListener("click", (e) => {
       }
       saveName(S.name);
       S.screen = "home";
+      // Wer ueber einen Einladungslink kam, soll nach dem Namen direkt in die
+      // Lobby - nicht erst wieder durchs Menue klicken.
+      if (S.perLink) {
+        beitreten();
+        return;
+      }
       break;
 
     case "editName":
@@ -1752,6 +2509,10 @@ el.addEventListener("click", (e) => {
       break;
 
     case "start": {
+      if (!passtDieZahl(S.spiel, S.names.length)) {
+        S.error = `${spielName(S.spiel)}: ${spielerBedarf(S.spiel)}`;
+        break;
+      }
       const players = S.names.map((n, i) => ({ id: "p" + i, name: n.trim() || `Spieler ${i + 1}` }));
       // ohne hostId: am selben Gerät darf jeder aufdecken
       S.game = neuesSpiel(S.spiel, players);
@@ -1768,16 +2529,24 @@ el.addEventListener("click", (e) => {
       });
       return;
 
+    case "linkKopieren": {
+      const link = lobbyLink(S.lobby?.code ?? "");
+      navigator.clipboard
+        ?.writeText(link)
+        .then(() => toast(`<span>Link kopiert – jetzt verschicken 🔗</span>`))
+        .catch(() => toast(`<span>Kopieren ging nicht: ${esc(link)}</span>`, "bad"));
+      return;
+    }
+    case "linkTeilen":
+      navigator
+        .share?.({ title: "Trinkspiele", text: "Komm in die Lobby!", url: lobbyLink(S.lobby?.code ?? "") })
+        .catch(() => {
+          /* abgebrochen ist kein Fehler */
+        });
+      return;
+
     case "join":
-      if (S.code.length < 4) {
-        S.error = "Bitte den vierstelligen Code eintragen.";
-        break;
-      }
-      connect().emit("joinLobby", { code: S.code, name: S.name.trim(), avatar: savedAvatar() }, (res) => {
-        if (res.ok) Object.assign(S, { myId: res.playerId, lobby: res.lobby, connected: true });
-        else S.error = res.error;
-        render();
-      });
+      beitreten();
       return;
 
     case "startOnline":
@@ -1893,8 +2662,38 @@ el.addEventListener("keydown", (e) => {
       saveName(S.name);
       S.screen = "home";
       render();
+      if (S.perLink) beitreten();
     }
   }
 });
 
+/**
+ * Beitreten per Link: .../?c=ARJV
+ *
+ * Der Code wird herausgezogen und die Adresse gleich wieder saubergemacht -
+ * sonst landet man beim Neuladen immer wieder in derselben alten Lobby.
+ */
+S.code = (() => {
+  try {
+    const c = new URLSearchParams(location.search).get("c") ?? "";
+    return c.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4);
+  } catch {
+    return "";
+  }
+})();
+
+if (S.code.length === 4) {
+  S.perLink = true;
+  S.mode = "online";
+  S.screen = savedName() ? "lobby" : "name";
+  try {
+    history.replaceState(null, "", location.pathname);
+  } catch {
+    /* nicht schlimm, dann steht der Code eben noch in der Adresszeile */
+  }
+}
+
 render();
+
+// Name schon bekannt? Dann direkt rein, ohne dass jemand noch etwas tippen muss.
+if (S.perLink && savedName()) beitreten();

@@ -719,3 +719,45 @@ button.step {
 .strip .sp.weg { opacity: .45; border-color: var(--danger); }
 .strip .sp.weg i { color: var(--danger); }
 .streak em { font-style: normal; font-size: 12px; font-weight: 800; color: var(--gold); }
+
+/* --- Einladen: QR-Code und Link --- */
+.einladen {
+  display: flex; align-items: center; gap: 14px;
+  background: var(--surface); border: 1.5px solid var(--border);
+  border-radius: 20px; padding: 14px; margin: 12px 0 4px;
+}
+.einladen .qr {
+  flex: none; width: 108px; height: 108px;
+  border-radius: 10px; background: #fff;
+}
+.einladen .dazu { flex: 1; min-width: 0; }
+.einladen .dazu p {
+  margin: 0 0 10px; font-size: 13px; line-height: 1.4; color: var(--muted); font-weight: 600;
+}
+.einladen .row { gap: 8px; }
+.einladen .row button { padding: 10px 8px; font-size: 13px; }
+
+/* --- Leberschuss ---------------------------------------------------------- */
+/* Das Spielfeld ist ein Canvas und wird nicht ueber innerHTML erzeugt - es
+   haengt dauerhaft im Speicher und wird nach jedem Zeichnen wieder in die
+   Buehne gehaengt. Sonst waere der vorgebackene Hintergrund jedes Mal weg. */
+.lteams { display: flex; gap: 8px; margin-bottom: 8px; }
+.lteam {
+  flex: 1; background: var(--card, #1C1741); border: 1.5px solid #372E77;
+  border-radius: 12px; padding: 6px 9px 7px;
+}
+.lteam.dran { border-color: #FFC93C; }
+.lteam .lz { display: flex; align-items: baseline; gap: 6px; font-size: 12px; font-weight: 800; }
+.lteam .lz span { margin-left: auto; font-size: 11px; color: #A79FD1; font-weight: 700; }
+.lteam.t0 b { color: #E6E9F0; }
+.lteam.t1 b { color: #7CC4F5; }
+.lbalken { height: 7px; border-radius: 4px; background: #120E2E; margin-top: 5px; overflow: hidden; }
+.lbalken i { display: block; height: 100%; border-radius: 4px; transition: width .3s; }
+.lteam.t0 .lbalken i { background: linear-gradient(90deg, #9AA0AC, #E6E9F0); }
+.lteam.t1 .lbalken i { background: linear-gradient(90deg, #2A6FA8, #7CC4F5); }
+
+.lbuehne { height: min(58vh, 520px); margin: 0 0 10px; border-radius: 14px; overflow: hidden; }
+.lfeld { display: block; width: 100%; height: 100%; touch-action: none; }
+.lhinweis { margin: 0 0 4px; font-size: 14px; font-weight: 700; line-height: 1.35; }
+.lregel { margin: 0; font-size: 11px; line-height: 1.35; color: #8880B8; font-weight: 600; }
+button.stopp { background: linear-gradient(135deg, #FF9F1C, #FF3B6B); }
