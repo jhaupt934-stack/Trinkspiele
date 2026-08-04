@@ -29,10 +29,10 @@ import {
 } from "./build.js";
 import {
   amZug as amZugLeber,
-  flascheLeer,
+  antworte,
+  darfBestaetigen,
   leerAblehnen,
   leerBestaetigen,
-  naechsteRunde as naechsteRundeLeber,
   platzVon,
   schuss,
   teamVon,
@@ -170,21 +170,18 @@ function applyLeber(g, action, actorId) {
       return verteile(g, wer, action.targetId);
     case "verteilenZurueck":
       return verteilenZurueck(g, wer, action.targetId);
-    case "flascheLeer":
-      return flascheLeer(g, wer);
+    case "leerAntwort":
+      return antworte(g, wer, !!action.leer);
     case "leerJa":
       return leerBestaetigen(g, wer);
     case "leerNein":
       return leerAblehnen(g, wer);
-    case "weiterLeber":
-      return naechsteRundeLeber(g);
     default:
       return g;
   }
 }
 
 function mayActLeber(g, playerId, action) {
-  const istHost = !g.hostId || g.hostId === playerId;
   switch (action.type) {
     // Schnippsen darf nur, wer dran ist - und nur seinen eigenen Korken.
     case "schuss":
@@ -207,33 +204,17 @@ function mayActLeber(g, playerId, action) {
         : (g.letzte?.verteilt?.[platzVon(g, action.targetId)] ?? 0) > 0;
     }
 
-    // "Meine Flasche ist leer" - nur, wer auch wirklich schon getrunken hat und
-    // nicht ohnehin schon fertig ist.
-    case "flascheLeer": {
+    // Nach jeder Runde sagt jeder einmal, ob seine Flasche leer ist.
+    case "leerAntwort": {
       const nr = platzVon(g, playerId);
-      return (
-        nr >= 0 &&
-        g.phase !== "leer" &&
-        g.phase !== "finished" &&
-        !g.fertig[nr] &&
-        g.getrunken[nr] >= 1
-      );
+      return g.phase === "leerfrage" && nr >= 0 && g.antwort[nr] === null;
     }
 
     // Bestaetigen oder ablehnen darf nur das ANDERE Team. Sonst koennte man
     // sich den Sieg selbst zusprechen.
     case "leerJa":
     case "leerNein":
-      return (
-        g.phase === "leer" &&
-        teamVon(g, playerId) !== null &&
-        teamVon(g, playerId) !== teamVon(g, g.leer?.playerId)
-      );
-
-    // Die Abrechnung wegklicken macht der Host, damit nicht vier Leute
-    // gleichzeitig weiterdruecken. Ohne Host (lokales Spiel) darf es jeder.
-    case "weiterLeber":
-      return g.phase === "rundenende" && istHost;
+      return darfBestaetigen(g, playerId);
 
     default:
       return false;
