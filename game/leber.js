@@ -10,20 +10,20 @@
 // Team, und ein Korken, der auf der eigenen Seite in einem Feld liegenbleibt,
 // schenkt dem Gegner Schluecke.
 //
+// Es gibt KEINEN Punktestand. Gezaehlt wird nur, damit ein Team seine Schluecke
+// untereinander aufteilen kann. Gewonnen hat ein Team, wenn BEIDE Flaschen leer
+// sind - und jede einzelne muss vom anderen Team bestaetigt werden. Wer fertig
+// ist, bekommt keine Schluecke mehr ab; die gehen dann alle an den Partner.
+//
 // Reines JavaScript ohne Nebenwirkungen, laeuft im Browser wie im Server.
 
-// Kein Import aus sips.js: bei Leberschuss verteilt niemand einzelne Schluecke
-// an einzelne Leute - es wird pro TEAM abgerechnet. Der Zaehler `getrunken`
-// ersetzt den ganzen Verteil-Apparat der Kartenspiele.
+// Kein Import aus sips.js: dort verteilt jeder Schluecke an alle am Tisch. Hier
+// bekommt ein TEAM die Schluecke und teilt sie unter seinen zwei Leuten auf -
+// das ist einfacher und passt nicht auf denselben Apparat.
 import { ECKEN, FELD, schiesse, teamWertung } from "./schnipps.js";
 
 export const MIN_PLAYERS = 4;
 export const MAX_PLAYERS = 4;
-
-/** Ein Bier hat so viele Schluecke, jedes Team hat zwei Flaschen. */
-export const SCHLUCK_JE_FLASCHE = 14;
-export const FLASCHEN_JE_TEAM = 2;
-export const ZIEL = SCHLUCK_JE_FLASCHE * FLASCHEN_JE_TEAM;
 
 export const TEAM_NAME = ["Team 1", "Team 2"];
 
@@ -85,16 +85,19 @@ export function initLeber(players, rng = Math.random, hostId = null) {
 
   return {
     game: "leber",
-    phase: "play", // play | rundenende | finished
+    phase: "play", // play | verteilen | rundenende | leer | finished
     players,
     hostId,
     korken: startKorken(),
     runde: 1,
     reihe: reihenfolge(anfang),
     dran: 0,
-    getrunken: [0, 0],
-    letzte: null,  // Auswertung der letzten Runde
-    schuss: null,  // der letzte Schuss, damit alle Handys dieselbe Animation sehen
+    getrunken: [0, 0, 0, 0], // je SPIELER, nicht je Team
+    fertig: [false, false, false, false], // wessen Flasche schon leer ist
+    offen: [0, 0],           // noch aufzuteilende Schluecke je Team
+    letzte: null,            // Auswertung der letzten Runde
+    schuss: null,            // der letzte Schuss, damit alle dieselbe Animation sehen
+    leer: null,              // jemand sagt "Flasche leer" und wartet auf Bestaetigung
     sieger: null,
 
     rev: 0,
@@ -236,39 +239,172 @@ export const balkenKraft = (seitMs) => schwingung(seitMs, SCHWINGE_KRAFT);
 // ---------------------------------------------------------------------------
 
 /**
- * Die Runde auswerten und die Schluecke gutschreiben.
+ * Die Runde auswerten. Die Schluecke werden dem TEAM gutgeschrieben - wer sie
+ * davon trinkt, macht das Team gleich danach selbst aus (Phase "verteilen").
  *
  * "Deine Mama" - der rote Bereich ganz hinten zwischen den Flaschen - heisst:
- * das andere Team ext beide Flaschen und macht neue auf. Es hat also alles
- * getrunken, faengt aber wieder bei null an und ist damit weiter vom Sieg
- * entfernt als vorher.
+ * das andere Team ext beide Flaschen und macht neue auf. Alles, was die beiden
+ * bis dahin getrunken haben, zaehlt damit nicht mehr - sie fangen mit vollen
+ * Flaschen wieder an.
  */
 export function rundeAuswerten(g) {
   const { schluecke, mama, einzeln } = teamWertung(g.korken);
 
-  const getrunken = [g.getrunken[0] + schluecke[0], g.getrunken[1] + schluecke[1]];
-  if (mama[0]) getrunken[1] = 0;
-  if (mama[1]) getrunken[0] = 0;
+  // "Deine Mama": neue Flaschen fuer das andere Team. Damit ist auch niemand
+  // dort mehr fertig - eine frische Flasche ist nun mal nicht leer.
+  const getrunken = [...g.getrunken];
+  const fertig = [...g.fertig];
+  for (const t of [0, 1]) {
+    if (!mama[t]) continue;
+    for (const nr of teamPlaetze(1 - t)) {
+      getrunken[nr] = 0;
+      fertig[nr] = false;
+    }
+  }
 
-  let sieger = null;
-  const fertig = [getrunken[0] >= ZIEL, getrunken[1] >= ZIEL];
-  if (fertig[0] && !fertig[1]) sieger = 0;
-  else if (fertig[1] && !fertig[0]) sieger = 1;
-  else if (fertig[0] && fertig[1]) {
-    // Beide gleichzeitig fertig: der mit dem groesseren Ueberschuss gewinnt,
-    // bei Gleichstand geht es weiter.
-    const a = getrunken[0] - ZIEL;
-    const b = getrunken[1] - ZIEL;
-    sieger = a === b ? null : a > b ? 0 : 1;
+  return sortiereEin({
+    ...g,
+    getrunken,
+    fertig,
+    offen: [schluecke[0], schluecke[1]],
+    letzte: { schluecke, mama, einzeln, verteilt: [0, 0, 0, 0] },
+  });
+}
+
+/** Die beiden Plaetze eines Teams. */
+export const teamPlaetze = (team) => PLAETZE.filter((p) => p.team === team).map((p) => p.nr);
+
+/**
+ * Was sich nicht mehr aufteilen laesst, wird gleich zugeteilt.
+ *
+ * Wer seine Flasche leer hat, schnippst weiter mit, trinkt aber nichts mehr.
+ * Bleibt in einem Team also nur noch einer uebrig, gibt es nichts zu
+ * entscheiden - die Schluecke gehen alle an ihn, ohne dass jemand tippen muss.
+ * Danach steht die Phase fest: aufteilen nur, wenn noch etwas offen ist.
+ */
+function sortiereEin(g) {
+  const getrunken = [...g.getrunken];
+  const offen = [...g.offen];
+  const verteilt = [...(g.letzte?.verteilt ?? [0, 0, 0, 0])];
+
+  for (const t of [0, 1]) {
+    if (offen[t] <= 0) continue;
+    const frei = teamPlaetze(t).filter((nr) => !g.fertig[nr]);
+    if (frei.length !== 1) continue;
+    getrunken[frei[0]] += offen[t];
+    verteilt[frei[0]] += offen[t];
+    offen[t] = 0;
   }
 
   return {
     ...g,
     getrunken,
-    sieger,
-    letzte: { schluecke, mama, einzeln },
-    phase: sieger === null ? "rundenende" : "finished",
+    offen,
+    letzte: g.letzte ? { ...g.letzte, verteilt } : g.letzte,
+    phase: offen[0] + offen[1] > 0 ? "verteilen" : "rundenende",
   };
+}
+
+/**
+ * Einen Schluck an ein Teammitglied geben. Aufteilen darf jeder aus dem Team,
+ * dem die Schluecke gehoeren - auch fuer den Partner.
+ */
+export function verteile(g, playerId, zielId) {
+  if (g.phase !== "verteilen") return g;
+  const wer = platzVon(g, playerId);
+  const ziel = platzVon(g, zielId);
+  if (wer < 0 || ziel < 0) return g;
+
+  const team = PLAETZE[wer].team;
+  if (PLAETZE[ziel].team !== team) return g; // nur im eigenen Team
+  if (g.offen[team] <= 0) return g;
+  if (g.fertig[ziel]) return g;              // wer leer hat, trinkt nicht mehr
+
+  const getrunken = [...g.getrunken];
+  getrunken[ziel]++;
+  const verteilt = [...g.letzte.verteilt];
+  verteilt[ziel]++;
+  const offen = [...g.offen];
+  offen[team]--;
+
+  return {
+    ...g,
+    getrunken,
+    offen,
+    letzte: { ...g.letzte, verteilt },
+    phase: offen[0] + offen[1] > 0 ? "verteilen" : "rundenende",
+  };
+}
+
+/** Vertippt? Einen schon vergebenen Schluck wieder zuruecknehmen. */
+export function verteilenZurueck(g, playerId, zielId) {
+  if (g.phase !== "verteilen") return g;
+  const wer = platzVon(g, playerId);
+  const ziel = platzVon(g, zielId);
+  if (wer < 0 || ziel < 0) return g;
+
+  const team = PLAETZE[wer].team;
+  if (PLAETZE[ziel].team !== team) return g;
+  if (!(g.letzte?.verteilt[ziel] > 0)) return g;
+
+  const getrunken = [...g.getrunken];
+  getrunken[ziel]--;
+  const verteilt = [...g.letzte.verteilt];
+  verteilt[ziel]--;
+  const offen = [...g.offen];
+  offen[team]++;
+
+  return { ...g, getrunken, offen, letzte: { ...g.letzte, verteilt } };
+}
+
+// ---------------------------------------------------------------------------
+// Flasche leer
+// ---------------------------------------------------------------------------
+//
+// Es gibt keinen Punktestand. Das Spiel endet, wenn jemand sagt, seine Flasche
+// sei leer - und das andere Team es bestaetigt. Ohne diese Bestaetigung koennte
+// man einfach draufdruecken und haette gewonnen.
+
+/** "Meine Flasche ist leer." Geht erst, wenn man ueberhaupt getrunken hat. */
+export function flascheLeer(g, playerId) {
+  if (g.phase === "finished" || g.phase === "leer") return g;
+  const nr = platzVon(g, playerId);
+  if (nr < 0 || g.fertig[nr] || g.getrunken[nr] < 1) return g;
+  return { ...g, phase: "leer", leer: { playerId, zurueck: g.phase } };
+}
+
+/**
+ * Das andere Team bestaetigt. Damit ist EINE Flasche leer - gewonnen hat ein
+ * Team erst, wenn beide leer sind. Bis dahin geht es weiter, der Fertige
+ * schnippst also weiter mit, bekommt aber nichts mehr zu trinken.
+ */
+export function leerBestaetigen(g, playerId) {
+  if (g.phase !== "leer") return g;
+  const wer = platzVon(g, playerId);
+  const anspruch = platzVon(g, g.leer.playerId);
+  if (wer < 0 || PLAETZE[wer].team === PLAETZE[anspruch].team) return g;
+
+  const fertig = [...g.fertig];
+  fertig[anspruch] = true;
+
+  const team = PLAETZE[anspruch].team;
+  const beide = teamPlaetze(team).every((nr) => fertig[nr]);
+  if (beide) return { ...g, fertig, phase: "finished", sieger: team, leer: null };
+
+  // Waren noch Schluecke offen, wandern sie jetzt automatisch zum Partner -
+  // er ist ja der Einzige, der noch trinken kann.
+  const weiter = { ...g, fertig, leer: null };
+  if (g.leer.zurueck === "verteilen") return sortiereEin(weiter);
+  return { ...weiter, phase: g.leer.zurueck ?? "play" };
+}
+
+/** Oder eben nicht - dann geht es weiter, wo es aufgehoert hat. */
+export function leerAblehnen(g, playerId) {
+  if (g.phase !== "leer") return g;
+  const wer = platzVon(g, playerId);
+  const anspruch = platzVon(g, g.leer.playerId);
+  if (wer < 0 || PLAETZE[wer].team === PLAETZE[anspruch].team) return g;
+  return { ...g, phase: g.leer.zurueck ?? "play", leer: null };
 }
 
 /**
@@ -292,12 +428,9 @@ export function naechsteRunde(g) {
   };
 }
 
-/** Wie weit ist ein Team? 0 bis 1, fuer den Balken. */
-export const fortschritt = (g, team) => Math.min(1, g.getrunken[team] / ZIEL);
-
-/** Wie viele volle Flaschen hat ein Team schon geschafft? */
-export const flaschenLeer = (g, team) =>
-  Math.min(FLASCHEN_JE_TEAM, Math.floor(g.getrunken[team] / SCHLUCK_JE_FLASCHE));
+/** Wie viel hat ein Team zusammen getrunken? Nur zur Anzeige. */
+export const teamGetrunken = (g, team) =>
+  teamPlaetze(team).reduce((summe, nr) => summe + g.getrunken[nr], 0);
 
 // ---------------------------------------------------------------------------
 // Wenn jemand weg ist
@@ -306,10 +439,26 @@ export const flaschenLeer = (g, team) =>
 /** Auf wen wartet die Runde gerade? */
 export function wartetAufLeber(g) {
   if (!g || g.phase === "finished") return [];
+
+  // Jemand sagt "leer" - jetzt sind die beiden vom anderen Team gefragt.
+  if (g.phase === "leer") {
+    const nr = platzVon(g, g.leer.playerId);
+    return teamPlaetze(1 - PLAETZE[nr].team).map((i) => g.players[i]?.id).filter(Boolean);
+  }
+
+  // Aufteilen: jedes Team, das noch Schluecke offen hat.
+  if (g.phase === "verteilen") {
+    return [0, 1]
+      .filter((t) => g.offen[t] > 0)
+      .flatMap((t) => teamPlaetze(t).map((i) => g.players[i]?.id))
+      .filter(Boolean);
+  }
+
   if (g.phase === "rundenende") {
     const host = g.hostId ?? g.players[0]?.id;
     return host ? [host] : [];
   }
+
   const p = currentPlayer(g);
   return p ? [p.id] : [];
 }

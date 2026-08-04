@@ -29,10 +29,16 @@ import {
 } from "./build.js";
 import {
   amZug as amZugLeber,
+  flascheLeer,
+  leerAblehnen,
+  leerBestaetigen,
   naechsteRunde as naechsteRundeLeber,
   platzVon,
   schuss,
+  teamVon,
   ueberspringenLeber,
+  verteile,
+  verteilenZurueck,
   wartetAufLeber,
 } from "./leber.js";
 import { canUndo, pendingFor as racePendingFor, undoSip } from "./sips.js";
@@ -160,6 +166,16 @@ function applyLeber(g, action, actorId) {
   switch (action.type) {
     case "schuss":
       return schuss(g, wer, Number(action.richtung), Number(action.kraft));
+    case "verteileLeber":
+      return verteile(g, wer, action.targetId);
+    case "verteilenZurueck":
+      return verteilenZurueck(g, wer, action.targetId);
+    case "flascheLeer":
+      return flascheLeer(g, wer);
+    case "leerJa":
+      return leerBestaetigen(g, wer);
+    case "leerNein":
+      return leerAblehnen(g, wer);
     case "weiterLeber":
       return naechsteRundeLeber(g);
     default:
@@ -177,6 +193,41 @@ function mayActLeber(g, playerId, action) {
         platzVon(g, playerId) === amZugLeber(g) &&
         Number.isFinite(Number(action.richtung)) &&
         Number.isFinite(Number(action.kraft))
+      );
+
+    // Aufteilen darf jeder aus dem Team, dem die Schluecke gehoeren - und nur
+    // an sich oder den Partner.
+    case "verteileLeber":
+    case "verteilenZurueck": {
+      if (g.phase !== "verteilen") return false;
+      const meins = teamVon(g, playerId);
+      if (meins === null || teamVon(g, action.targetId) !== meins) return false;
+      return action.type === "verteileLeber"
+        ? g.offen[meins] > 0
+        : (g.letzte?.verteilt?.[platzVon(g, action.targetId)] ?? 0) > 0;
+    }
+
+    // "Meine Flasche ist leer" - nur, wer auch wirklich schon getrunken hat und
+    // nicht ohnehin schon fertig ist.
+    case "flascheLeer": {
+      const nr = platzVon(g, playerId);
+      return (
+        nr >= 0 &&
+        g.phase !== "leer" &&
+        g.phase !== "finished" &&
+        !g.fertig[nr] &&
+        g.getrunken[nr] >= 1
+      );
+    }
+
+    // Bestaetigen oder ablehnen darf nur das ANDERE Team. Sonst koennte man
+    // sich den Sieg selbst zusprechen.
+    case "leerJa":
+    case "leerNein":
+      return (
+        g.phase === "leer" &&
+        teamVon(g, playerId) !== null &&
+        teamVon(g, playerId) !== teamVon(g, g.leer?.playerId)
       );
 
     // Die Abrechnung wegklicken macht der Host, damit nicht vier Leute
