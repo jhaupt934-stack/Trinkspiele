@@ -294,6 +294,29 @@ io.on("connection", (socket) => {
     io.to(lobby.code).emit("lobby", lobbyView(lobby));
   });
 
+  /**
+   * Platz tauschen. Bei Leberschuss ist die Reihenfolge in der Spielerliste
+   * zugleich die Sitzordnung: 0 und 1 sind Team 1, 2 und 3 Team 2, und die
+   * beiden linken Plaetze sind die Kapitaene. Wer sich woanders hinsetzt,
+   * tauscht mit dem, der da sitzt - so bleiben immer alle vier auf Plaetzen.
+   */
+  socket.on("platzTausch", ({ nr } = {}) => {
+    const found = findBySocket(socket.id);
+    if (!found) return;
+    const { lobby, playerId } = found;
+    if (lobby.game) return;
+
+    const ziel = Number(nr);
+    const ich = lobby.players.findIndex((p) => p.id === playerId);
+    if (!Number.isInteger(ziel) || ziel < 0 || ziel >= lobby.players.length) return;
+    if (ich < 0 || ich === ziel) return;
+
+    const liste = lobby.players;
+    [liste[ich], liste[ziel]] = [liste[ziel], liste[ich]];
+    lobby.lastActivity = Date.now();
+    io.to(lobby.code).emit("lobby", lobbyView(lobby));
+  });
+
   socket.on("startGame", ({ spiel } = {}) => {
     const found = findBySocket(socket.id);
     if (!found) return;
