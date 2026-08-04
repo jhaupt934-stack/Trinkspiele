@@ -85,9 +85,9 @@
 // denselben Modulen - hier steht nur die Bedienung.
 
 import {
-  initLeber, schuss, naechsteRunde, amZug, letzteBewegung,
-  pfeilRichtung, balkenKraft, platzVon, teamPlaetze,
-  verteile, flascheLeer, leerBestaetigen, leerAblehnen,
+  initLeber, schuss, amZug, letzteBewegung,
+  pfeilRichtung, balkenKraft, teamPlaetze,
+  verteile, antworte, darfBestaetigen, leerBestaetigen, leerAblehnen,
   PLAETZE, TEAM_NAME,
 } from "/game/leber.js";
 import { macheZeichner } from "/leber3d.js";
@@ -153,13 +153,7 @@ function aufteilung() {
 function anzeigen() {
   summeEl.textContent = g.runde;
   knopf(knopf2El, "knopf2", "", null);
-
-  // "Flasche leer" darf jeder, der schon getrunken hat und noch nicht fertig
-  // ist. Am gemeinsamen Handy nehmen wir den, der gerade gefragt ist.
-  const kandidaten = SPIELER.filter((p, i) => !g.fertig[i] && g.getrunken[i] >= 1);
-  const wer = kandidaten.find((p) => SPIELER.indexOf(p) === amZug(g)) ?? kandidaten[0];
-  if (g.phase === "leer" || g.phase === "finished" || !wer) knopf(leerEl, "leer", "", null);
-  else knopf(leerEl, "leer", `🍾 ${wer.name} leer`, () => tuIt(flascheLeer(g, wer.id)));
+  knopf(leerEl, "leer", "", null);
 
   if (g.phase === "finished") {
     hinweisEl.textContent = `${TEAM_NAME[g.sieger]} hat beide Flaschen leer. Gewonnen!`;
@@ -167,8 +161,8 @@ function anzeigen() {
     return;
   }
 
-  if (g.phase === "leer") {
-    const nr = platzVon(g, g.leer.playerId);
+  if (g.phase === "bestaetigen") {
+    const nr = g.leer.nr;
     const gegner = teamPlaetze(1 - PLAETZE[nr].team)[0];
     hinweisEl.textContent = `${SPIELER[nr].name} sagt: Flasche leer. ${
       TEAM_NAME[PLAETZE[gegner].team]
@@ -178,37 +172,35 @@ function anzeigen() {
     return;
   }
 
+  if (g.phase === "leerfrage") {
+    const nr = g.antwort.findIndex((a) => a === null);
+    hinweisEl.textContent = `${aufteilung() || "Nichts getroffen."}  ·  ${
+      SPIELER[nr].name
+    }: Flasche leer?`;
+    knopf(knopfEl, "knopf", "🍾 Leer", () => tuIt(antworte(g, SPIELER[nr].id, true)));
+    knopf(knopf2El, "knopf2", "Noch nicht", () => tuIt(antworte(g, SPIELER[nr].id, false)));
+    return;
+  }
+
   if (g.phase === "verteilen") {
+    // Beide Teams teilen auf - am gemeinsamen Handy eins nach dem anderen.
     const team = g.offen[0] > 0 ? 0 : 1;
     const [a, b] = teamPlaetze(team);
     hinweisEl.textContent = `${TEAM_NAME[team]}: ${g.offen[team]} ${
       g.offen[team] === 1 ? "Schluck" : "Schlücke"
     } – wer trinkt?`;
-    knopf(knopfEl, "knopf", SPIELER[a].name + zusatz(a), () => tuIt(verteile(g, SPIELER[a].id, SPIELER[a].id)));
-    knopf(knopf2El, "knopf2", SPIELER[b].name + zusatz(b), () => tuIt(verteile(g, SPIELER[b].id, SPIELER[b].id)));
-    return;
-  }
-
-  if (g.phase === "rundenende") {
-    const mama = g.letzte?.mama;
-    const extra = mama?.[0] || mama?.[1]
-      ? `  ${TEAM_NAME[mama[0] ? 1 : 0]} ext beide Flaschen!`
-      : "";
-    hinweisEl.textContent = (aufteilung() || "Nichts getroffen.") + extra;
-    knopf(knopfEl, "knopf", "Weiter", () => {
-      g = naechsteRunde(g);
-      getroffen = [];
-      neuerZug();
-    });
+    knopf(knopfEl, "knopf", SPIELER[a].name + zusatz(a), () =>
+      tuIt(verteile(g, SPIELER[a].id, SPIELER[a].id))
+    );
+    knopf(knopf2El, "knopf2", SPIELER[b].name + zusatz(b), () =>
+      tuIt(verteile(g, SPIELER[b].id, SPIELER[b].id))
+    );
     return;
   }
 
   const nr = amZug(g);
-  if (zielen?.phase === "kraft") {
-    hinweisEl.textContent = "Kraft stoppen.";
-    knopf(knopfEl, "knopf", "Stopp", weiter);
-  } else if (zielen) {
-    hinweisEl.textContent = "Pfeil stoppen.";
+  if (zielen) {
+    hinweisEl.textContent = zielen.phase === "kraft" ? "Kraft stoppen." : "Pfeil stoppen.";
     knopf(knopfEl, "knopf", "Stopp", weiter);
   } else {
     hinweisEl.textContent = `${SPIELER[nr].name} ist dran – Korken ${wo(nr)}.`;

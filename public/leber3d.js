@@ -195,7 +195,12 @@ function beleuchte(n, m, haut) {
   const b = hin(m, KAMERA);
   const halb = norm([l[0] + b[0], l[1] + b[1], l[2] + b[2]]);
 
-  const glanz = Math.pow(Math.max(0, skalar(n, halb)), haut.haerte) * haut.staerke;
+  let glanz = Math.pow(Math.max(0, skalar(n, halb)), haut.haerte) * haut.staerke;
+  // Ein zweiter, weicherer Reflex: so sieht beschlagenes Glas aus, nicht wie
+  // poliertes Blech mit einem einzelnen Punkt darauf.
+  if (haut.glanz2) {
+    glanz += Math.pow(Math.max(0, skalar(n, halb)), haut.glanz2.haerte) * haut.glanz2.staerke;
+  }
   let f = (haut.grund ?? UMGEBUNG) + 0.72 * Math.max(0, skalar(n, l)) + 0.15 * Math.max(0, skalar(n, g));
 
   // Glas wird dort dunkel, wo man streifend durchschaut - da ist es dicker.
@@ -257,7 +262,17 @@ function drehkoerper(profil, seiten, hautFuer, rMod) {
 }
 
 /** Materialien. `dicht` heißt: undurchsichtig, Rückseite kann weg. */
-const GLAS = { farbe: [158, 90, 20], haerte: 46, staerke: 0.8, kante: 0.6, dicht: true };
+// Nasses Glas: dunkler in der Grundfarbe, dafuer ein harter kleiner Glanzpunkt
+// und ein zweiter, weicherer darueber. Ein trockenes Etikett bleibt matt - der
+// Unterschied macht den Eindruck erst aus.
+const GLAS = {
+  farbe: [96, 48, 8],
+  haerte: 110,   // kleiner, harter Reflex statt breitem Schimmer
+  staerke: 1.35,
+  glanz2: { haerte: 16, staerke: 0.3 }, // feuchter Schleier drumherum
+  kante: 0.5,
+  dicht: true,
+};
 // Papier hat einen hohen Grundwert: es streut das Licht aus dem ganzen Raum,
 // deshalb bleibt ein Etikett auch im Schatten hell statt grau zu werden.
 const PAPIER = { farbe: [255, 253, 248], haerte: 6, staerke: 0.05, grund: 0.58, dicht: true };
@@ -601,9 +616,20 @@ function fuelleTeile(teile, farbe, z = MATTE_Z) {
 function maleZiffer(zahl, mx, my, gross, wende) {
   const linie = ZIFFERN[zahl];
   if (!linie) return;
+
+  // Genau mittig: die Ziffern sind von Hand gezeichnet und deshalb nicht von
+  // selbst um den Nullpunkt herum ausgeglichen - eine "1" haengt zum Beispiel
+  // nach rechts. Also wird ihr tatsaechlicher Kasten gemessen und die Ziffer
+  // um dessen Mitte gelegt.
+  const dick = 0.098;
+  const xs = linie.map((q) => q[0]);
+  const ys = linie.map((q) => q[1]);
+  const mu = (Math.min(...xs) + Math.max(...xs)) / 2;
+  const mv = (Math.min(...ys) + Math.max(...ys)) / 2;
+
   const s = wende ? -1 : 1;
-  const gelegt = linie.map(([u, v]) => [mx + s * u * gross, my - s * v * gross]);
-  fuelleTeile(strich(gelegt, 0.098 * gross), FARBEN.matte);
+  const gelegt = linie.map(([u, v]) => [mx + s * (u - mu) * gross, my - s * (v - mv) * gross]);
+  fuelleTeile(strich(gelegt, dick * gross), FARBEN.matte);
 }
 
 // ===========================================================================
@@ -727,10 +753,10 @@ function malFlascheInnen(mx, my) {
   const oben = proj(mx, my, MATTE_Z + FLASCHE.hoehe);
   const unten = proj(mx, my, MATTE_Z);
   const g = ctx.createLinearGradient(0, oben.y, 0, unten.y);
-  g.addColorStop(0, "#241206");
-  g.addColorStop(0.3, "#492409");
-  g.addColorStop(0.4, "#A3620F");
-  g.addColorStop(1, "#5C3009");
+  g.addColorStop(0, "#170B03");
+  g.addColorStop(0.3, "#301705");
+  g.addColorStop(0.4, "#7A470B");
+  g.addColorStop(1, "#3D1F05");
   ctx.fillStyle = g;
   ctx.fill();
 }
@@ -806,7 +832,7 @@ function maleHintergrund(b) {
   // Ziffern - liegen flach auf der Matte und werden mitverzerrt
   for (const f of FELDER) {
     if (f.mama) continue;
-    const gross = 11 - f.punkte * 1.4;
+    const gross = 8.2 - f.punkte * 1.05;
     maleZiffer(f.punkte, f.schrift[0], f.schrift[1], gross, false);
     maleZiffer(f.punkte, FELD.breite - f.schrift[0], FELD.laenge - f.schrift[1], gross, true);
   }
