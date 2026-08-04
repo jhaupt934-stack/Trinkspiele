@@ -841,3 +841,37 @@ html, body { overflow-x: hidden; }
 }
 .sitz .av { width: 24px; height: 24px; font-size: 15px; }
 .regelhinweis { font-size: 12px; color: var(--muted); font-weight: 600; margin: 4px 0 0; }
+
+/* Platzwahl: zwei klar getrennte Blöcke, je zwei Plätze. */
+.teamblock {
+  background: var(--surface); border: 2px solid var(--border);
+  border-radius: 18px; padding: 10px 11px 12px; margin-bottom: 4px;
+}
+.teamblock.t0 { border-color: #4A5568; }
+.teamblock.t1 { border-color: #2A6FA8; }
+.teamblock .titel { font-size: 13px; font-weight: 800; margin-bottom: 8px; }
+.teamblock.t0 .titel { color: #E6E9F0; }
+.teamblock.t1 .titel { color: #7CC4F5; }
+.teamblock .felder { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.gegen {
+  text-align: center; font-size: 11px; font-weight: 800; letter-spacing: 1px;
+  color: var(--muted); text-transform: uppercase; margin: 6px 0;
+}
+.platz {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  min-height: 78px; justify-content: center; min-width: 0;
+  padding: 9px 8px; font-size: 14px; font-weight: 800;
+  background: var(--surface-2); border: 1.5px solid var(--border);
+  border-radius: 13px; color: var(--text); box-shadow: none;
+}
+.platz .wo {
+  font-size: 9px; font-weight: 800; letter-spacing: .6px; text-transform: uppercase;
+  color: var(--muted);
+}
+.platz b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.platz .offen { color: var(--mint); }
+.platz i { font-style: normal; font-size: 9px; color: var(--muted); font-weight: 700; }
+.platz.frei { border-style: dashed; border-color: var(--mint); }
+.platz.ich { border-color: var(--mint); background: var(--surface-3, #2A2360); }
+.platz.belegt { opacity: .55; }
+.platz .av { width: 26px; height: 26px; font-size: 16px; }

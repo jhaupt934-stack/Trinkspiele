@@ -768,78 +768,11 @@ function malFlascheInnen(mx, my) {
   ctx.fill();
 }
 
-/**
- * Der Aufdruck aufs Etikett: Wappen, VELTINS, Pilsener.
- *
- * Das Etikett selbst ist Teil des Drehkoerpers - Schrift laesst sich darauf
- * aber nicht drehen. Also wird sie flach auf die Vorderseite gelegt: die
- * Blickrichtung gibt die Breite vor, und alles skaliert mit ihr. Wird die
- * Flasche zu klein, faellt zuerst das Kleingedruckte weg, dann das Wappen -
- * ein Fleck sieht schlechter aus als gar nichts.
- */
-function malSchriftzug(mx, my) {
-  // Quer zur Blickrichtung: so breit ist das Etikett auf dem Bildschirm.
-  const zur = Math.atan2(my - KAMERA.y, mx - KAMERA.x);
-  const qx = -Math.sin(zur);
-  const qy = Math.cos(zur);
-  const r = FLASCHEN_R * 0.82;
-  const hoehe = MATTE_Z + 6.0 * MASSTAB;
-
-  const a = proj(mx - qx * r, my - qy * r, hoehe);
-  const b = proj(mx + qx * r, my + qy * r, hoehe);
-  const breit = Math.hypot(b.x - a.x, b.y - a.y);
-  if (breit < 14) return;
-
-  // Der Mittelpunkt der Vorderseite - dorthin gehoert die Schrift.
-  const vorn = proj(mx + Math.cos(zur) * r * 0.55, my + Math.sin(zur) * r * 0.55, hoehe);
-  const zeile = (dz) =>
-    proj(mx + Math.cos(zur) * r * 0.55, my + Math.sin(zur) * r * 0.55, hoehe + dz * MASSTAB);
-
-  ctx.save();
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-
-  // Das Wappen: ein Schild mit rotem und gruenem Feld, darueber die Krone.
-  if (breit > 30) {
-    const w = zeile(1.9);
-    const s = breit * 0.13;
-    ctx.beginPath();
-    ctx.moveTo(w.x - s, w.y - s);
-    ctx.lineTo(w.x + s, w.y - s);
-    ctx.lineTo(w.x + s, w.y + s * 0.3);
-    ctx.lineTo(w.x, w.y + s * 1.2);
-    ctx.lineTo(w.x - s, w.y + s * 0.3);
-    ctx.closePath();
-    ctx.fillStyle = "#0F0F0F";
-    ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(w.x - s * 0.62, w.y - s * 0.45);
-    ctx.lineTo(w.x + s * 0.62, w.y - s * 0.45);
-    ctx.lineTo(w.x + s * 0.62, w.y + s * 0.15);
-    ctx.lineTo(w.x, w.y + s * 0.75);
-    ctx.lineTo(w.x - s * 0.62, w.y + s * 0.15);
-    ctx.closePath();
-    ctx.fillStyle = "#C8102E";
-    ctx.fill();
-  }
-
-  // VELTINS - eine Serifenschrift, gesperrt. Genau daran erkennt man es.
-  const gross = Math.round(breit * 0.235);
-  ctx.font = `700 ${gross}px Georgia, "Times New Roman", serif`;
-  ctx.fillStyle = "#0E0E0E";
-  if (ctx.letterSpacing !== undefined) ctx.letterSpacing = `${(breit * 0.012).toFixed(1)}px`;
-  ctx.fillText("VELTINS", vorn.x, vorn.y);
-  if (ctx.letterSpacing !== undefined) ctx.letterSpacing = "0px";
-
-  // Pilsener - gruen und kursiv, wie der Schwung auf dem Etikett.
-  if (breit > 26) {
-    const u = zeile(-1.6);
-    ctx.font = `italic 700 ${Math.round(breit * 0.16)}px Georgia, "Times New Roman", serif`;
-    ctx.fillStyle = "#00913F";
-    ctx.fillText("Pilsener", u.x, u.y);
-  }
-  ctx.restore();
-}
+// Kein Aufdruck auf dem Etikett. Zweimal versucht - einmal als Text, der zur
+// Kamera schaut, einmal als gewickelte Buchstaben auf dem Glas - und beides
+// sah bei einer Flasche von gut einem Zentimeter Hoehe schlechter aus als ein
+// sauberes, leeres Etikett. Wenn es doch wieder rein soll: die zweite Fassung
+// steht in der Fassung v39 dieser Datei.
 
 /** Der Name über einem Korken - nur in der Draufsicht, sonst wird es voll. */
 function malName(k, name) {
@@ -954,7 +887,6 @@ function maleHintergrund(b) {
   for (const t of [...flaschenTeile].sort((a, c) => c.tiefe - a.tiefe)) {
     malFlascheInnen(t.x, t.y);
     maleFlaechen(t.flaechen);
-    malSchriftzug(t.x, t.y);
   }
 
   // --- Zum Rand hin abdunkeln, damit das Auge in der Mitte bleibt ---

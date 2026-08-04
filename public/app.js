@@ -259,7 +259,7 @@ const regelnHtml = (id) => REGELN[id] ?? "<p>Für dieses Spiel gibt es noch kein
 
 // Steht unten auf der Startseite. Wenn etwas komisch aussieht, sagt diese
 // Nummer sofort, welche Fassung auf dem Handy wirklich laeuft.
-const VERSION = "v38";
+const VERSION = "v40";
 
 const el = document.getElementById("app");
 
@@ -676,41 +676,58 @@ function setupScreen() {
 }
 
 /**
- * Die Sitzordnung für Leberschuss. Die Reihenfolge in der Spielerliste IST die
- * Sitzordnung - wer sich woanders hinsetzt, tauscht mit dem, der da sitzt.
- * Der linke Platz jedes Teams ist der Kapitän: nur er teilt später die
- * Schlücke auf.
+ * Platzwahl für Leberschuss - ein eigener Bildschirm zwischen "Starten" und
+ * der ersten Runde.
+ *
+ * Zwei Blöcke, klar getrennt, je zwei Plätze. Ein besetzter Platz lässt sich
+ * nicht nehmen; den eigenen verlässt man, indem man ihn nochmal antippt oder
+ * sich woanders hinsetzt. Sitzen alle vier, geht es von selbst los.
  */
-function sitzordnung() {
-  const p = S.lobby?.players ?? [];
-  if (p.length !== 4) {
-    return `<p class="regelhinweis">Leberschuss braucht genau 4 – dann könnt ihr euch hier
-      auf die Plätze setzen.</p>`;
-  }
+function plaetzeScreen() {
+  const l = S.lobby;
+  const plaetze = l.plaetze ?? [];
+  const name = (id) => l.players.find((p) => p.id === id)?.name ?? "";
+  const wer = (id) => l.players.find((p) => p.id === id);
+  const meiner = plaetze.indexOf(S.myId);
+  const binHost = !!l.players.find((p) => p.id === S.myId)?.isHost;
 
-  const platz = (nr) => {
-    const wer = p[nr];
-    const ich = wer?.id === S.myId;
+  const feld = (nr) => {
+    const id = plaetze[nr];
+    const ich = id === S.myId;
+    const frei = !id;
     const kap = KAPITAEN.includes(nr);
+    const klick = frei || ich ? `data-a="platzWaehlen" data-i="${ich ? "" : nr}"` : "disabled";
     return `
-      <button class="sitz ${ich ? "ich" : ""} t${PLAETZE[nr].team}" data-a="platzTausch" data-i="${nr}">
-        ${avatar(wer)}
-        <b>${esc(wer?.name ?? "")}</b>
-        ${kap ? `<i>Kapitän</i>` : ""}
+      <button class="platz ${ich ? "ich" : frei ? "frei" : "belegt"}" ${klick}>
+        <span class="wo">${PLAETZE[nr].hand}${kap ? " · Kapitän" : ""}</span>
+        ${frei ? `<b class="offen">frei</b>` : `${avatar(wer(id))}<b>${esc(name(id))}</b>`}
+        ${ich ? `<i>tippen zum Aufstehen</i>` : ""}
       </button>`;
   };
 
-  return `
-    <p class="label">Plätze – tippen zum Tauschen</p>
-    <div class="tisch">
-      <span class="kante">hintere Kante · ${TEAM_NAME[1]}</span>
-      ${platz(2)}${platz(3)}
-      ${platz(0)}${platz(1)}
-      <span class="kante">vordere Kante · ${TEAM_NAME[0]}</span>
+  const block = (t) => `
+    <div class="teamblock t${t}">
+      <div class="titel">${TEAM_NAME[t]}</div>
+      <div class="felder">${teamPlaetze(t).map(feld).join("")}</div>
     </div>`;
+
+  const offen = plaetze.filter((id) => !id).length;
+  return `
+    <h2>Plätze wählen</h2>
+    <p class="sub">${
+      meiner >= 0
+        ? `Du sitzt bei <strong>${TEAM_NAME[PLAETZE[meiner].team]}</strong>. Noch ${offen} frei.`
+        : `Such dir einen Platz – noch ${offen} frei.`
+    }</p>
+    ${block(0)}
+    <div class="gegen">gegen</div>
+    ${block(1)}
+    <p class="regelhinweis">Der Kapitän teilt später die Schlücke seines Teams auf.
+      Sitzen alle vier, geht es los.</p>
+    ${binHost ? `<div class="actions"><button class="ghost wide" data-a="platzwahlAus">Zurück zur Lobby</button></div>` : ""}`;
 }
 
-/** Name des Hosts im Warteraum. */
+/** Name des Hosts im Warteraum. *//** Name des Hosts im Warteraum. */
 const hostNameLobby = () => S.lobby?.players.find((p) => p.isHost)?.name ?? "der Host";
 
 function lobbyScreen() {
@@ -768,7 +785,6 @@ function lobbyScreen() {
 
       <p class="label">${binHost ? "Spiel" : `Spiel – wählt ${esc(hostNameLobby())}`}</p>
       ${gamePicker(spiel, binHost)}
-      ${spiel === "leber" ? sitzordnung() : ""}
       ${S.error ? `<p class="error">${esc(S.error)}</p>` : ""}
 
       <div class="actions">
@@ -2412,7 +2428,7 @@ function render() {
   else if (S.screen === "home") html = homeScreen();
   else if (S.screen === "rules") html = rulesScreen();
   else if (S.screen === "setup") html = setupScreen();
-  else if (S.screen === "lobby") html = lobbyScreen();
+  else if (S.screen === "lobby") html = S.lobby?.plaetze ? plaetzeScreen() : lobbyScreen();
   else if (S.game?.game === "race") {
     const g = S.game;
     if (g.phase === "bets") html = betScreen(g);
@@ -2638,8 +2654,13 @@ el.addEventListener("click", (e) => {
       if (S.mode === "online" && S.lobby) S.socket?.emit("setGame", { spiel: S.spiel });
       break;
 
-    case "platzTausch":
-      S.socket?.emit("platzTausch", { nr: Number(t.dataset.i) });
+    case "platzWaehlen":
+      // Ohne Nummer heisst: aufstehen.
+      S.socket?.emit("platzWaehlen", { nr: t.dataset.i === "" ? null : Number(t.dataset.i) });
+      break;
+
+    case "platzwahlAus":
+      S.socket?.emit("platzwahlAus");
       break;
 
     case "pickAvatar":
