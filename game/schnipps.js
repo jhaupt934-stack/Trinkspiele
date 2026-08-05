@@ -101,14 +101,13 @@ export const FELDER = [
     ],
   },
   {
-    // Ganz hinten zwischen den Flaschen. Zaehlt vor allen anderen Feldern.
+    // Ganz hinten ZWISCHEN den Flaschen. Zaehlt vor allen anderen Feldern.
+    // Die Form kommt weiter unten aus mamaForm() - sie haengt an den Flaschen.
     name: "Deine Mama",
     mama: true,
     punkte: 0,
-    schrift: [20, 114.7],
-    ecken: [
-      [15.1, 111.8], [24.9, 111.8], [24.9, 117.6], [15.1, 117.6],
-    ],
+    schrift: [20, 115.2],
+    ecken: [],
   },
 ];
 
@@ -123,10 +122,74 @@ export const FELDER = [
  * wie sie zwischen zwei echten Flaschen eben ist.
  */
 export const FLASCHEN_R = 3.0;
+
+/** Die beiden Flaschen der gegnerischen Haelfte. */
 export const FLASCHEN = [
   { x: 14.5, y: 111.4, r: FLASCHEN_R },
   { x: 25.5, y: 111.4, r: FLASCHEN_R },
 ];
+
+/**
+ * ALLE VIER Flaschen - auch die beiden auf der eigenen Haelfte.
+ *
+ * Es standen immer vier auf dem Tisch, gezeichnet wurden auch vier, aber
+ * gerechnet wurde nur mit den zwei da hinten. Die beiden vorne, direkt neben
+ * den eigenen Startecken, waren fuer den Korken nicht vorhanden: er flog
+ * mitten durch das Glas oder blieb darin liegen. Wer hier eine Schleife ueber
+ * Flaschen schreibt, nimmt DIESE Liste.
+ */
+export const FLASCHEN_ALLE = FLASCHEN.flatMap((f) => [
+  { ...f },
+  { ...f, y: FELD.laenge - f.y },
+]);
+
+/** Wie weit "Deine Mama" nach hinten reicht. */
+const MAMA_HINTEN = 117.6;
+/**
+ * Und wo es vorne anfaengt. Genau wie beim alten Rechteck: einen Tick hinter
+ * der Mitte der Flaschen. Weiter vorne wuerde das Feld die Spitze der "3"
+ * verschlucken - ein Korken dort beruehrt beides, und Mama zaehlt vor allem
+ * anderen.
+ */
+const MAMA_VORNE = 111.8;
+/** Und wie viel Luft zwischen Feldrand und Glas bleibt. */
+const MAMA_LUFT = 0.25;
+
+/**
+ * Die Form von "Deine Mama": der Zwickel hinter und zwischen den Flaschen.
+ *
+ * Frueher war das ein Rechteck. Das lag zu einem guten Teil UNTER den Flaschen -
+ * Punkte, die man gar nicht treffen kann, weil dort Glas steht, und beim
+ * Zeichnen schaute das Rot unter der Flasche hervor. Jetzt laeuft der Rand in
+ * einem Bogen an beiden Flaschen entlang.
+ *
+ * Der Weg hinein ist damit genau die Luecke zwischen den beiden Flaschen -
+ * also das, was man am Tisch auch treffen muss.
+ */
+function mamaForm() {
+  const [links, rechts] = FLASCHEN;
+  const r = FLASCHEN_R + MAMA_LUFT;
+  const bogen = (f, von, bis, n = 9) =>
+    Array.from({ length: n + 1 }, (_, i) => {
+      const w = von + ((bis - von) * i) / n;
+      return [f.x + Math.cos(w) * r, f.y + Math.sin(w) * r];
+    });
+
+  const H = Math.PI / 2;
+  // Wo der Bogen anfaengt: dort, wo die Flasche die vordere Kante schneidet.
+  const start = Math.asin(Math.max(-1, Math.min(1, (MAMA_VORNE - links.y) / r)));
+
+  return [
+    // Rechte Seite der linken Flasche, von der vorderen Kante nach hinten
+    ...bogen(links, start, H),
+    [links.x, MAMA_HINTEN],
+    [rechts.x, MAMA_HINTEN],
+    // Linke Seite der rechten Flasche, von hinten zurueck nach vorne
+    ...bogen(rechts, H, Math.PI - start),
+  ];
+}
+
+FELDER.find((f) => f.mama).ecken = mamaForm();
 
 /**
  * Nur zum Zeichnen: der gelbe Rahmen, die beiden Keile zur Mitte hin und das
@@ -202,6 +265,11 @@ function streuZahl(korken, nr, richtung, kraft) {
  */
 export function schiesse(korken, nr, richtung, kraft) {
   const stand = korken.map((k) => ({ ...k, vx: 0, vy: 0, raus: !!k.raus, zeit: 0 }));
+  // Falls aus einer aelteren Fassung noch ein Korken in einer Flasche steckt:
+  // erst einmal freiraeumen, sonst schiebt er sich den ganzen Schuss lang an
+  // ihr entlang.
+  for (const k of stand) if (!k.raus) flaschenStoss(k, k.x, k.y);
+
   const treffer = stand[nr];
   if (!treffer || treffer.raus) return { bilder: [], ende: stand, dt: DT };
 
@@ -226,6 +294,78 @@ export function schiesse(korken, nr, richtung, kraft) {
   return { bilder, ende: stand.map(({ x, y, raus }) => ({ x, y, raus })), dt: DT };
 }
 
+/**
+ * Der Korken ist gerade von (vorX, vorY) auf (k.x, k.y) gerutscht - stand ihm
+ * dabei eine Flasche im Weg?
+ *
+ * Geprueft wird die ganze STRECKE, nicht nur der Endpunkt. Bei vollem Tempo
+ * sind das zwar nur 0,7 cm je Schritt, und eine Flasche ist mit dem Korken
+ * zusammen 9 cm dick - durchfliegen kann er also eigentlich nicht. "Eigentlich"
+ * ist beim Rechnen aber kein gutes Wort: sobald jemand den Zeitschritt vergroe-
+ * ssert oder das Hoechsttempo anhebt, faengt genau das an. So bleibt es dicht.
+ *
+ * Danach wird noch ein paarmal nachgeschaut. Ein Korken, den die eine Flasche
+ * wegdrueckt, kann in der Luecke daneben gleich in der naechsten stecken.
+ */
+function flaschenStoss(k, vorX, vorY) {
+  for (let runde = 0; runde < 4; runde++) {
+    let getroffen = null;
+    let besteZeit = Infinity;
+
+    for (const f of FLASCHEN_ALLE) {
+      const min = f.r + KORKEN_R;
+
+      // Steckt er schon drin? Dann sofort heraus - das ist der haeufige Fall.
+      const dx = k.x - f.x;
+      const dy = k.y - f.y;
+      const d = laenge(dx, dy);
+      if (d < min) {
+        if (0 < besteZeit) {
+          besteZeit = 0;
+          getroffen = { f, nx: d === 0 ? 1 : dx / d, ny: d === 0 ? 0 : dy / d, min };
+        }
+        continue;
+      }
+
+      // Sonst: schneidet die Strecke den Kreis? Ein Punkt auf der Strecke ist
+      // vorher + t * (nachher - vorher); gesucht ist das kleinste t, bei dem
+      // der Abstand zum Mittelpunkt genau `min` ist.
+      const sx = k.x - vorX;
+      const sy = k.y - vorY;
+      const a = sx * sx + sy * sy;
+      if (a === 0) continue;
+      const mx = vorX - f.x;
+      const my = vorY - f.y;
+      const b = 2 * (mx * sx + my * sy);
+      const c = mx * mx + my * my - min * min;
+      const unter = b * b - 4 * a * c;
+      if (unter < 0) continue;
+      const t = (-b - Math.sqrt(unter)) / (2 * a);
+      if (t < 0 || t > 1 || t >= besteZeit) continue;
+
+      const tx = vorX + sx * t;
+      const ty = vorY + sy * t;
+      besteZeit = t;
+      getroffen = { f, nx: (tx - f.x) / min, ny: (ty - f.y) / min, min };
+    }
+
+    if (!getroffen) return;
+
+    // Auf die Glaswand setzen und abprallen lassen
+    const { f, nx, ny, min } = getroffen;
+    k.x = f.x + nx * min;
+    k.y = f.y + ny * min;
+    const rein = k.vx * nx + k.vy * ny;
+    if (rein < 0) {
+      k.vx -= (1 + ABPRALL) * rein * nx;
+      k.vy -= (1 + ABPRALL) * rein * ny;
+    }
+    // Ab hier faengt die Strecke am Abprallpunkt neu an.
+    vorX = k.x;
+    vorY = k.y;
+  }
+}
+
 /** Ein Zeitschritt. Gibt zurueck, ob sich noch etwas bewegt. */
 function einSchritt(stand) {
   let bewegt = false;
@@ -248,6 +388,8 @@ function einSchritt(stand) {
     k.vx = (k.vx / v) * neu;
     k.vy = (k.vy / v) * neu;
 
+    const vorX = k.x;
+    const vorY = k.y;
     k.x += k.vx * DT;
     k.y += k.vy * DT;
 
@@ -265,21 +407,7 @@ function einSchritt(stand) {
       continue;
     }
 
-    // Flaschen stehen im Weg
-    for (const f of FLASCHEN) {
-      const dx = k.x - f.x;
-      const dy = k.y - f.y;
-      const d = laenge(dx, dy);
-      const min = f.r + KORKEN_R;
-      if (d >= min || d === 0) continue;
-      const nx = dx / d;
-      const ny = dy / d;
-      k.x = f.x + nx * min;
-      k.y = f.y + ny * min;
-      const rein = k.vx * nx + k.vy * ny;
-      k.vx -= (1 + ABPRALL) * rein * nx;
-      k.vy -= (1 + ABPRALL) * rein * ny;
-    }
+    flaschenStoss(k, vorX, vorY);
   }
 
   // Korken untereinander: gleiche Masse, gerader Stoss
@@ -314,6 +442,12 @@ function einSchritt(stand) {
       b.zeit = 0;
     }
   }
+
+  // Beim Auseinanderschieben kann ein Korken in eine Flasche geraten - auch
+  // ein Korken, der laengst stillliegt und deshalb oben uebersprungen wurde.
+  // Also zum Schluss noch einmal alle freiraeumen.
+  for (const k of stand) if (!k.raus) flaschenStoss(k, k.x, k.y);
+
   return bewegt;
 }
 
