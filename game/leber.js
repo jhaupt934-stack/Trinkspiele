@@ -468,22 +468,11 @@ function frageStellen(g) {
   return pruefeAntworten({ ...g, antwort, phase: "leerfrage" });
 }
 
-/**
- * Darf diese Person "leer" sagen?
- *
- * Nur, wenn sie ueberhaupt etwas getrunken hat. Wer noch keinen einzigen
- * Schluck hatte, kann keine leere Flasche haben - und ein Fehltipp haette
- * sonst das Spiel entschieden. Nach "Deine Mama" faengt der Zaehler wieder bei
- * null an, und dann stimmt es ja auch: die Flasche ist frisch.
- */
-export const darfLeerSagen = (g, playerId) => (g.getrunken[spielerNr(g, playerId)] ?? 0) > 0;
-
 /** "Meine Flasche ist leer" oder "noch nicht". */
 export function antworte(g, playerId, istLeer) {
   if (g.phase !== "leerfrage") return g;
   const i = spielerNr(g, playerId);
   if (i < 0 || g.antwort[i] !== null) return g;
-  if (istLeer && !darfLeerSagen(g, playerId)) return g;
 
   const antwort = [...g.antwort];
   antwort[i] = istLeer ? "leer" : "nein";

@@ -30,7 +30,6 @@ import {
 import {
   antworte,
   darfBestaetigen,
-  darfLeerSagen,
   istDran,
   istKapitaen,
   leerAblehnen,
@@ -209,13 +208,10 @@ function mayActLeber(g, playerId, action) {
         : (g.letzte?.verteilt?.[spielerNr(g, action.targetId)] ?? 0) > 0;
     }
 
-    // Nach jeder Runde sagt jeder einmal, ob seine Flasche leer ist. "Leer"
-    // darf aber nur, wer auch etwas getrunken hat - sonst waere ein Fehltipp
-    // gleich ein halber Sieg.
+    // Nach jeder Runde sagt jeder einmal, ob seine Flasche leer ist.
     case "leerAntwort": {
       const i = spielerNr(g, playerId);
-      if (!(g.phase === "leerfrage" && i >= 0 && g.antwort[i] === null)) return false;
-      return action.leer ? darfLeerSagen(g, playerId) : true;
+      return g.phase === "leerfrage" && i >= 0 && g.antwort[i] === null;
     }
 
     // Bestaetigen oder ablehnen darf nur der KAPITAEN des anderen Teams. Sonst
