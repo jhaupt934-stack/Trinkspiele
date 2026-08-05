@@ -108,17 +108,49 @@ export function placeBet(g, playerId, suit, amount) {
   const n = Math.round(Number(amount));
   if (!Number.isFinite(n) || n < MIN_EINSATZ || n > MAX_EINSATZ) return g;
 
-  return {
+  const next = {
     ...g,
     bets: { ...g.bets, [playerId]: { suit, amount: n } },
     players: g.players.map((p) => (p.id === playerId ? { ...p, sips: p.sips + n } : p)),
     message: `${player.name} trinkt ${n} Schluck${n > 1 ? "e" : ""} und setzt auf ${suitName(suit)}.`,
   };
+
+  // Sobald der Letzte gesetzt hat, laeuft der Countdown los. Niemand muss mehr
+  // einen Startknopf finden.
+  if (!allBetsIn(next)) return next;
+  return { ...next, startetUm: Date.now() + START_MS, message: "Alle haben gesetzt – gleich geht's los!" };
 }
 
-export function startRace(g) {
+// ---------------------------------------------------------------------------
+// Von selbst laufen
+// ---------------------------------------------------------------------------
+//
+// Das Rennen wird nicht mehr durchgeklickt. Sobald alle gesetzt haben, zaehlt
+// es von fuenf herunter, dann faellt alle paar Sekunden eine Karte. Am Tisch
+// dreht ja auch niemand auf Zuruf um - es laeuft einfach.
+//
+// Die Zeiten stehen im Spielstand, nicht in der Oberflaeche: so sehen alle
+// denselben Countdown, und der Server kann pruefen, ob jemand vordraengelt.
+
+export const START_MS = 5000;  // Countdown nach dem letzten Einsatz
+export const KARTE_MS = 2600;  // Abstand zwischen zwei Karten
+
+/** Wie viele Sekunden noch bis zum Start? 0 heisst: jetzt. */
+export const startetIn = (g, jetzt = Date.now()) =>
+  Math.max(0, Math.ceil(((g.startetUm ?? 0) - jetzt) / 1000));
+
+/** Ist die naechste Karte faellig? */
+export const karteFaellig = (g, jetzt = Date.now()) => jetzt >= (g.naechsteKarteUm ?? 0);
+
+export function startRace(g, jetzt = Date.now()) {
   if (g.phase !== "bets" || !allBetsIn(g)) return g;
-  return { ...g, phase: "race", message: "Und los! Der Host deckt die Karten auf." };
+  if (jetzt < (g.startetUm ?? 0)) return g; // der Countdown laeuft noch
+  return {
+    ...g,
+    phase: "race",
+    naechsteKarteUm: jetzt + KARTE_MS,
+    message: "Und los!",
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -169,8 +201,10 @@ function revealSideCards(g) {
 const hatWette = (g, suit) => g.players.some((p) => g.bets[p.id]?.suit === suit);
 
 /** Eine Karte vom Stapel: das passende Pferd rueckt vor. */
-export function flipRace(g) {
+export function flipRace(g, jetzt = Date.now()) {
   if (g.phase !== "race" || g.winner) return g;
+  if (!karteFaellig(g, jetzt)) return g; // die vorige Karte liegt noch keine Sekunde
+  g = { ...g, naechsteKarteUm: jetzt + KARTE_MS };
 
   const deck = refill(g);
   const karte = deck[0];

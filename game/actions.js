@@ -257,7 +257,11 @@ function mayActRace(g, playerId, action) {
         Number(action.amount) <= MAX_EINSATZ
       );
 
-    // Das Rennen startet und laeuft ueber den Host.
+    // Das Rennen laeuft von selbst - ausgeloest wird es vom Handy des Hosts.
+    // Ob die Zeit auch wirklich um ist, pruefen startRace() und flipRace()
+    // selbst: kommt eine Karte zu frueh, bleibt der Stand einfach stehen.
+    // Diese Pruefung gehoert dorthin und nicht hierher, damit "wer darf?" und
+    // "wann?" nicht durcheinandergehen.
     case "startRace":
       return g.phase === "bets" && allBetsIn(g) && istHost;
     case "flip":

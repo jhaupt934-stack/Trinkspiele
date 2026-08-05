@@ -46,7 +46,11 @@ const HUEPF_BREMSE = 0.45; // so viel Reibung wirkt in der Zeit
 // Kleine Schritte, weil die Korken schnell sind: bei 300 cm/s waeren es bei
 // 1/120 s schon 2,5 cm pro Schritt - mehr als ein halber Korken.
 const DT = 1 / 480;
-const ABPRALL = 0.5; // Blech gegen Glasflasche - das springt gut zurueck
+// Blech gegen Glasflasche. Eine volle Flasche steht bombenfest, der Korken ist
+// leicht und hart - da geht wenig Schwung verloren. Mit 0,5 blieb er nach einem
+// festen Schuss zu oft direkt an der Flasche liegen, also mitten in der "3".
+// Mit 0,8 kommt er wie am Tisch ein gutes Stueck zurueck.
+const ABPRALL = 0.8;
 const STOSS_VERLUST = 0.95; // Korken gegen Korken, fast elastisch
 const STILL = 2; // langsamer als das bleibt er liegen (cm/s)
 const MAX_SCHRITTE = 2400; // Notbremse, 5 Sekunden
