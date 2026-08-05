@@ -28,14 +28,14 @@ import {
   TIPPS,
 } from "./build.js";
 import {
-  amZug as amZugLeber,
   antworte,
   darfBestaetigen,
+  istDran,
   istKapitaen,
   leerAblehnen,
   leerBestaetigen,
-  platzVon,
   schuss,
+  spielerNr,
   teamVon,
   ueberspringenLeber,
   verteile,
@@ -184,17 +184,19 @@ function applyLeber(g, action, actorId) {
 
 function mayActLeber(g, playerId, action) {
   switch (action.type) {
-    // Schnippsen darf nur, wer dran ist - und nur seinen eigenen Korken.
+    // Schnippsen darf nur, wer dran ist - und nur den Korken, der dran ist.
+    // Wer allein im Team ist, schnippst beide Korken seiner Seite, aber immer
+    // nur den einen, der gerade an der Reihe ist.
     case "schuss":
       return (
         g.phase === "play" &&
-        platzVon(g, playerId) === amZugLeber(g) &&
+        istDran(g, playerId) &&
         Number.isFinite(Number(action.richtung)) &&
         Number.isFinite(Number(action.kraft))
       );
 
-    // Aufteilen darf jeder aus dem Team, dem die Schluecke gehoeren - und nur
-    // an sich oder den Partner.
+    // Aufteilen darf nur der Kapitaen des Teams, dem die Schluecke gehoeren -
+    // und nur an sich oder den Partner.
     case "verteileLeber":
     case "verteilenZurueck": {
       if (g.phase !== "verteilen") return false;
@@ -203,17 +205,18 @@ function mayActLeber(g, playerId, action) {
       if (meins === null || teamVon(g, action.targetId) !== meins) return false;
       return action.type === "verteileLeber"
         ? g.offen[meins] > 0
-        : (g.letzte?.verteilt?.[platzVon(g, action.targetId)] ?? 0) > 0;
+        : (g.letzte?.verteilt?.[spielerNr(g, action.targetId)] ?? 0) > 0;
     }
 
     // Nach jeder Runde sagt jeder einmal, ob seine Flasche leer ist.
     case "leerAntwort": {
-      const nr = platzVon(g, playerId);
-      return g.phase === "leerfrage" && nr >= 0 && g.antwort[nr] === null;
+      const i = spielerNr(g, playerId);
+      return g.phase === "leerfrage" && i >= 0 && g.antwort[i] === null;
     }
 
-    // Bestaetigen oder ablehnen darf nur das ANDERE Team. Sonst koennte man
-    // sich den Sieg selbst zusprechen.
+    // Bestaetigen oder ablehnen darf nur der KAPITAEN des anderen Teams. Sonst
+    // koennte man sich den Sieg selbst zusprechen - und zu zweit auf derselben
+    // Frage kaeme man sich gegenseitig in die Quere.
     case "leerJa":
     case "leerNein":
       return darfBestaetigen(g, playerId);
@@ -341,14 +344,16 @@ export function wartetAuf(g) {
 }
 
 /**
- * Wie viele Leute braucht ein Spiel? Leberschuss ist 2 gegen 2 - da gibt es
- * vier Ecken und vier Kronkorken, mehr oder weniger geht nicht.
+ * Wie viele Leute braucht ein Spiel? Bei Leberschuss gibt es immer vier Ecken
+ * und vier Korken, aber nicht immer vier Leute: wer allein in seinem Team ist,
+ * schnippst beide Korken seiner Seite. Damit geht 2 gegen 2, 2 gegen 1 und
+ * 1 gegen 1 - unter zweien wird es schwierig, ueber vieren wird es eng.
  */
 export const GRENZEN = {
   bus: { min: 2, max: 8 },
   race: { min: 2, max: 8 },
   build: { min: 2, max: 8 },
-  leber: { min: 4, max: 4 },
+  leber: { min: 2, max: 4 },
 };
 export const grenzen = (spiel) => GRENZEN[spiel] ?? GRENZEN.bus;
 

@@ -1,4 +1,4 @@
-// Leberschuss - der Spielablauf. 2 gegen 2, vier Leute, vier Kronkorken.
+// Leberschuss - der Spielablauf. Zwei Teams, vier Kronkorken.
 //
 // Hier stehen nur die Regeln: wer wann dran ist, wer wie viel trinken darf,
 // wann eine Runde vorbei ist und wann jemand gewonnen hat. Das Schnippsen
@@ -11,25 +11,31 @@
 // schenkt dem Gegner Schluecke.
 //
 // Es gibt KEINEN Punktestand. Gezaehlt wird nur, damit ein Team seine Schluecke
-// untereinander aufteilen kann. Gewonnen hat ein Team, wenn BEIDE Flaschen leer
-// sind - und jede einzelne muss vom anderen Team bestaetigt werden. Wer fertig
-// ist, bekommt keine Schluecke mehr ab; die gehen dann alle an den Partner.
+// untereinander aufteilen kann. Gewonnen hat ein Team, wenn ALLE seine Flaschen
+// leer sind - und jede einzelne muss vom anderen Team bestaetigt werden. Wer
+// fertig ist, bekommt keine Schluecke mehr ab; die gehen dann an den Partner.
+//
+// PLATZ und SPIELER sind zweierlei. Es gibt immer vier PLAETZE mit vier
+// Korken, aber nicht immer vier Leute: bei 1 gegen 1 oder 2 gegen 1 schnippst
+// wer allein im Team ist, eben beide Korken seiner Seite. Getrunken wird immer
+// je PERSON. Wer die beiden verwechselt, zaehlt bei 1 gegen 1 die Schluecke
+// doppelt - deshalb heissen die Zaehler hier durchgehend nach Spielern und die
+// Korken nach Plaetzen.
 //
 // Reines JavaScript ohne Nebenwirkungen, laeuft im Browser wie im Server.
 
 // Kein Import aus sips.js: dort verteilt jeder Schluecke an alle am Tisch. Hier
-// bekommt ein TEAM die Schluecke und teilt sie unter seinen zwei Leuten auf -
-// das ist einfacher und passt nicht auf denselben Apparat.
+// bekommt ein TEAM die Schluecke und teilt sie unter seinen Leuten auf - das
+// ist einfacher und passt nicht auf denselben Apparat.
 import { ECKEN, FELD, schiesse, teamWertung } from "./schnipps.js";
 
-export const MIN_PLAYERS = 4;
+export const MIN_PLAYERS = 2;
 export const MAX_PLAYERS = 4;
 
 export const TEAM_NAME = ["Team 1", "Team 2"];
 
 /**
- * Vier Plaetze am Tisch. Die Nummer ist zugleich die des Kronkorkens und die
- * Stelle in der Spielerliste:
+ * Vier Plaetze am Tisch. Die Nummer ist zugleich die des Kronkorkens:
  *
  *      ferne Kante
  *        2     3        <- Team 2
@@ -44,18 +50,19 @@ export const PLAETZE = [
   { nr: 3, team: 1, seite: "fern", hand: "rechts" },
 ];
 
+/** Die beiden Plaetze eines Teams. */
+export const teamPlaetze = (team) => PLAETZE.filter((p) => p.team === team).map((p) => p.nr);
+
 /**
- * Der Kapitaen jedes Teams: der linke Platz. Nur er teilt die Schluecke auf.
+ * Der Kapitaenssitz jedes Teams: der linke Platz. Wer dort sitzt, teilt die
+ * Schluecke auf und entscheidet ueber die Ansprueche des Gegners.
  *
  * Vorher durfte jeder aus dem Team tippen - zu zweit auf zwei Handys wurde
  * daraus ein Wettrennen, bei dem keiner wusste, ob der andere gerade schon
- * verteilt. Einer entscheidet, der andere sieht zu. Wer Kapitaen ist, macht
- * ihr vor dem Spiel in der Lobby aus: es ist der, der auf dem linken Platz
- * sitzt.
+ * getippt hat. Einer entscheidet, der andere sieht zu. Ist ein Team nur eine
+ * Person, ist die Frage ohnehin beantwortet.
  */
-export const KAPITAEN = [0, 2];
-export const istKapitaen = (g, playerId) => KAPITAEN.includes(platzVon(g, playerId));
-export const kapitaenVon = (g, team) => g.players[KAPITAEN[team]] ?? null;
+export const KAPITAENSPLATZ = [0, 2];
 
 /**
  * Wer sitzt DIAGONAL gegenueber? Also ueber Eck, nicht direkt gegenueber:
@@ -63,15 +70,16 @@ export const kapitaenVon = (g, team) => g.players[KAPITAEN[team]] ?? null;
  */
 export const diagonal = (nr) => [3, 2, 1, 0][nr];
 
-/** Und wer ist der eigene Teampartner? */
+/** Und welcher Platz ist der zweite desselben Teams? */
 export const partner = (nr) => [1, 0, 3, 2][nr];
 
 /**
  * Die Reihenfolge einer Runde: Anfaenger, der diagonal gegenueber, dann der
- * Teampartner des Anfaengers, zuletzt der Uebriggebliebene.
+ * zweite Platz des Anfaengerteams, zuletzt der Uebriggebliebene.
  *
- * Dadurch wechseln sich die Teams zwangslaeufig ab - niemand kommt zweimal
- * hintereinander dran - und es geht immer ueber Eck.
+ * Dadurch wechseln sich die Teams zwangslaeufig ab - kein Team kommt zweimal
+ * hintereinander - und es geht immer ueber Eck. Bei 1 gegen 1 schnippst
+ * dieselbe Person eben zweimal, aber nie zweimal am Stueck.
  */
 export function reihenfolge(anfang) {
   const p = partner(anfang);
@@ -87,37 +95,126 @@ export const startKorken = () => [
 ];
 
 // ---------------------------------------------------------------------------
+// Wer sitzt wo
+// ---------------------------------------------------------------------------
+
+/**
+ * Aus der Besetzung einen Sitzplan machen.
+ *
+ * `besetzung` ist entweder
+ *   - eine Liste von vier Plaetzen mit Spieler oder `null` (so kommt sie vom
+ *     Platzwahl-Bildschirm), oder
+ *   - einfach eine Spielerliste; dann werden die Plaetze der Reihe nach
+ *     vergeben: zwei Leute sind 1 gegen 1, drei sind 2 gegen 1.
+ *
+ * Heraus kommt `{ players, sitze }`: die Leute in fester Reihenfolge und zu
+ * jedem der vier Plaetze die Nummer der Person, die ihn schnippst. Ein leerer
+ * Platz geht an den Teampartner - so bleiben es immer vier Korken.
+ */
+export function sitzplan(besetzung) {
+  const alsPlaetze =
+    besetzung.length === 4 && besetzung.some((p) => p == null)
+      ? besetzung
+      : verteilePlaetze(besetzung);
+
+  const players = [];
+  const roh = alsPlaetze.map((p) => {
+    if (!p) return -1;
+    const schon = players.findIndex((q) => q.id === p.id);
+    if (schon >= 0) return schon;
+    players.push(p);
+    return players.length - 1;
+  });
+
+  const sitze = roh.map((i, nr) => (i >= 0 ? i : roh[partner(nr)]));
+  if (sitze.some((i) => i < 0)) throw new Error("In jedem Team muss mindestens einer sitzen.");
+  return { players, sitze };
+}
+
+/** Ohne Platzwahl: der Reihe nach auf die vier Plaetze setzen. */
+function verteilePlaetze(players) {
+  if (players.length < MIN_PLAYERS) throw new Error("Leberschuss geht ab zwei Leuten.");
+  if (players.length > MAX_PLAYERS) throw new Error("Leberschuss geht bis vier Leute.");
+  // 2 -> einer je Team, 3 -> zwei gegen einen, 4 -> voll besetzt.
+  const plan = { 2: [0, null, 1, null], 3: [0, 1, 2, null], 4: [0, 1, 2, 3] }[players.length];
+  return plan.map((i) => (i === null ? null : players[i]));
+}
+
+// ---------------------------------------------------------------------------
 // Start
 // ---------------------------------------------------------------------------
 
-export function initLeber(players, rng = Math.random, hostId = null) {
-  if (players.length !== MIN_PLAYERS) throw new Error("Leberschuss geht nur zu viert.");
+export function initLeber(besetzung, rng = Math.random, hostId = null) {
+  const { players, sitze } = sitzplan(besetzung);
 
-  // Wer anfaengt, wird ausgelost.
+  // Zu welchem Team gehoert wer? Einmal ausrechnen statt jedesmal suchen.
+  const teamOf = players.map((_, i) => PLAETZE[sitze.findIndex((s) => s === i)].team);
+
+  // Wer anfaengt, wird ausgelost - ausgelost wird der PLATZ.
   const anfang = Math.floor(rng() * PLAETZE.length) % PLAETZE.length;
+
+  const je = (wert) => players.map(() => wert);
 
   return {
     game: "leber",
     phase: "play", // play | verteilen | leerfrage | bestaetigen | finished
     players,
+    sitze,   // je Platz: welche Person schnippst ihn
+    teamOf,  // je Person: welches Team
     hostId,
     korken: startKorken(),
     runde: 1,
     reihe: reihenfolge(anfang),
     dran: 0,
-    getrunken: [0, 0, 0, 0], // je SPIELER, nicht je Team
-    fertig: [false, false, false, false], // wessen Flasche schon leer ist
-    offen: [0, 0],           // noch aufzuteilende Schluecke je Team
-    letzte: null,            // Auswertung der letzten Runde
-    schuss: null,            // der letzte Schuss, damit alle dieselbe Animation sehen
-    antwort: [null, null, null, null], // "leer" / "nein" nach jeder Runde
-    leer: null,              // welcher Anspruch gerade bestaetigt werden soll
+    getrunken: je(0),     // je PERSON, nicht je Platz und nicht je Team
+    fertig: je(false),    // wessen Flasche schon leer ist
+    offen: [0, 0],        // noch aufzuteilende Schluecke je Team
+    letzte: null,         // Auswertung der letzten Runde
+    schuss: null,         // der letzte Schuss, damit alle dieselbe Animation sehen
+    antwort: je(null),    // "leer" / "nein" nach jeder Runde
+    leer: null,           // welcher Anspruch gerade bestaetigt werden soll
     sieger: null,
 
     rev: 0,
     message: "",
   };
 }
+
+// ---------------------------------------------------------------------------
+// Plaetze und Personen
+// ---------------------------------------------------------------------------
+
+/** Die wievielte Person ist das? -1, wenn sie nicht mitspielt. */
+export const spielerNr = (g, playerId) => g.players.findIndex((p) => p.id === playerId);
+
+/** Welche Plaetze schnippst diese Person? Bei 1 gegen 1 sind es zwei. */
+export function plaetzeVon(g, playerId) {
+  const i = spielerNr(g, playerId);
+  return i < 0 ? [] : g.sitze.map((s, nr) => (s === i ? nr : -1)).filter((nr) => nr >= 0);
+}
+
+/** Ihr vorderer Platz - der, von dem aus sie auf den Tisch schaut. */
+export const platzVon = (g, playerId) => plaetzeVon(g, playerId)[0] ?? -1;
+
+/** Wer schnippst diesen Platz? */
+export const spielerAmPlatz = (g, nr) => g.players[g.sitze[nr]] ?? null;
+
+/** Zu welchem Team gehoert diese Person? */
+export const teamVon = (g, playerId) => g.teamOf[spielerNr(g, playerId)] ?? null;
+
+/** Alle Personen eines Teams, als Nummern. */
+export const teamSpieler = (g, team) =>
+  g.players.map((_, i) => i).filter((i) => g.teamOf[i] === team);
+
+/** Der Kapitaen eines Teams: wer auf dem linken Platz sitzt. */
+export const kapitaenVon = (g, team) => g.players[g.sitze[KAPITAENSPLATZ[team]]] ?? null;
+
+/** Ist diese Person Kapitaen ihres Teams? */
+export const istKapitaen = (g, playerId) =>
+  !!playerId && kapitaenVon(g, teamVon(g, playerId))?.id === playerId;
+
+/** Wie ist es besetzt? "2 gegen 1" und so weiter - nur zur Anzeige. */
+export const aufstellung = (g) => `${teamSpieler(g, 0).length} gegen ${teamSpieler(g, 1).length}`;
 
 // ---------------------------------------------------------------------------
 // Wer ist dran
@@ -135,22 +232,20 @@ export const istEntschieden = (g) => g.sieger !== null && g.sieger !== undefined
 /** Der Platz, der gerade dran ist - oder undefined, wenn die Runde durch ist. */
 export const amZug = (g) => g.reihe[g.dran];
 
-/** Ist die Runde durch - haben also alle vier geschnippst? */
+/** Ist die Runde durch - haben also alle vier Korken ihren Schuss gehabt? */
 export const rundeVorbei = (g) => g.dran >= g.reihe.length;
 
-/** Welchen Platz hat dieser Spieler? */
-export const platzVon = (g, playerId) => g.players.findIndex((p) => p.id === playerId);
+/** Wer ist gerade dran? Gibt die Person zurueck, nicht die Nummer. */
+export const currentPlayer = (g) => (rundeVorbei(g) ? null : spielerAmPlatz(g, amZug(g)));
 
-/** Wer ist gerade dran? Gibt den Spieler zurueck, nicht die Nummer. */
-export const currentPlayer = (g) => (rundeVorbei(g) ? null : g.players[amZug(g)] ?? null);
-
-/** Zu welchem Team gehoert dieser Spieler? */
-export const teamVon = (g, playerId) => PLAETZE[platzVon(g, playerId)]?.team ?? null;
+/** Ist diese Person am Zug? */
+export const istDran = (g, playerId) =>
+  !rundeVorbei(g) && g.sitze[amZug(g)] === spielerNr(g, playerId) && spielerNr(g, playerId) >= 0;
 
 /**
- * Alle ueberspringen, die keinen Korken mehr auf der Matte haben. Auch der
- * Erste einer Runde kann betroffen sein - sein Korken kann in der Runde davor
- * runtergefallen sein.
+ * Alle Plaetze ueberspringen, deren Korken nicht mehr auf der Matte liegt. Auch
+ * der Erste einer Runde kann betroffen sein - sein Korken kann in der Runde
+ * davor runtergefallen sein.
  */
 function zugVorbereiten(g) {
   let dran = g.dran;
@@ -173,8 +268,8 @@ function zugVorbereiten(g) {
  */
 export function schuss(g, playerId, richtung, kraft) {
   if (g.phase !== "play") return g;
-  const nr = platzVon(g, playerId);
-  if (nr < 0 || nr !== amZug(g)) return g;
+  if (!istDran(g, playerId)) return g;
+  const nr = amZug(g);
   if (g.korken[nr]?.raus) return g;
   if (!Number.isFinite(richtung) || !Number.isFinite(kraft)) return g;
 
@@ -266,9 +361,8 @@ export const balkenKraft = (seitMs) => schwingung(seitMs, SCHWINGE_KRAFT);
  * davon trinkt, macht das Team gleich danach selbst aus (Phase "verteilen").
  *
  * "Deine Mama" - der rote Bereich ganz hinten zwischen den Flaschen - heisst:
- * das andere Team ext beide Flaschen und macht neue auf. Alles, was die beiden
- * bis dahin getrunken haben, zaehlt damit nicht mehr - sie fangen mit vollen
- * Flaschen wieder an.
+ * das andere Team ext seine Flaschen und macht neue auf. Alles, was dort bis
+ * dahin getrunken wurde, zaehlt damit nicht mehr.
  */
 export function rundeAuswerten(g) {
   const { schluecke, mama, einzeln } = teamWertung(g.korken);
@@ -279,9 +373,9 @@ export function rundeAuswerten(g) {
   const fertig = [...g.fertig];
   for (const t of [0, 1]) {
     if (!mama[t]) continue;
-    for (const nr of teamPlaetze(1 - t)) {
-      getrunken[nr] = 0;
-      fertig[nr] = false;
+    for (const i of teamSpieler(g, 1 - t)) {
+      getrunken[i] = 0;
+      fertig[i] = false;
     }
   }
 
@@ -290,29 +384,34 @@ export function rundeAuswerten(g) {
     getrunken,
     fertig,
     offen: [schluecke[0], schluecke[1]],
-    letzte: { schluecke, mama, einzeln, verteilt: [0, 0, 0, 0] },
+    letzte: { schluecke, mama, einzeln, verteilt: g.players.map(() => 0) },
   });
 }
-
-/** Die beiden Plaetze eines Teams. */
-export const teamPlaetze = (team) => PLAETZE.filter((p) => p.team === team).map((p) => p.nr);
 
 /**
  * Was sich nicht mehr aufteilen laesst, wird gleich zugeteilt.
  *
  * Wer seine Flasche leer hat, schnippst weiter mit, trinkt aber nichts mehr.
- * Bleibt in einem Team also nur noch einer uebrig, gibt es nichts zu
- * entscheiden - die Schluecke gehen alle an ihn, ohne dass jemand tippen muss.
- * Danach steht die Phase fest: aufteilen nur, wenn noch etwas offen ist.
+ * Bleibt in einem Team also nur noch einer uebrig - und bei 1 gegen 1 ist das
+ * von Anfang an so -, gibt es nichts zu entscheiden: die Schluecke gehen alle
+ * an ihn, ohne dass jemand tippen muss. Danach steht die Phase fest: aufteilen
+ * nur, wenn noch etwas offen ist.
  */
 function sortiereEin(g) {
   const getrunken = [...g.getrunken];
   const offen = [...g.offen];
-  const verteilt = [...(g.letzte?.verteilt ?? [0, 0, 0, 0])];
+  const verteilt = [...(g.letzte?.verteilt ?? g.players.map(() => 0))];
 
   for (const t of [0, 1]) {
     if (offen[t] <= 0) continue;
-    const frei = teamPlaetze(t).filter((nr) => !g.fertig[nr]);
+    const frei = teamSpieler(g, t).filter((i) => !g.fertig[i]);
+    // Niemand mehr da, der trinken koennte: die Schluecke verfallen. Kommt im
+    // laufenden Spiel nicht vor - wer keine volle Flasche mehr hat, hat
+    // gewonnen -, aber ohne diesen Zweig haenge die Runde fest.
+    if (!frei.length) {
+      offen[t] = 0;
+      continue;
+    }
     if (frei.length !== 1) continue;
     getrunken[frei[0]] += offen[t];
     verteilt[frei[0]] += offen[t];
@@ -327,54 +426,54 @@ function sortiereEin(g) {
 // Nach dem Aufteilen: Ist deine Flasche leer?
 // ---------------------------------------------------------------------------
 //
-// Jeder sagt einmal je Runde, ob seine Flasche leer ist. Erst wenn alle vier
+// Jeder sagt einmal je Runde, ob seine Flasche leer ist. Erst wenn alle
 // geantwortet haben, geht es weiter - entweder in die Bestaetigung oder gleich
 // in die naechste Runde. Wer schon fertig ist, wird nicht nochmal gefragt.
 
 function frageStellen(g) {
-  const antwort = PLAETZE.map((p) => (g.fertig[p.nr] ? "fertig" : null));
+  const antwort = g.players.map((_, i) => (g.fertig[i] ? "fertig" : null));
   return pruefeAntworten({ ...g, antwort, phase: "leerfrage" });
 }
 
 /** "Meine Flasche ist leer" oder "noch nicht". */
 export function antworte(g, playerId, istLeer) {
   if (g.phase !== "leerfrage") return g;
-  const nr = platzVon(g, playerId);
-  if (nr < 0 || g.antwort[nr] !== null) return g;
+  const i = spielerNr(g, playerId);
+  if (i < 0 || g.antwort[i] !== null) return g;
 
   const antwort = [...g.antwort];
-  antwort[nr] = istLeer ? "leer" : "nein";
+  antwort[i] = istLeer ? "leer" : "nein";
   return pruefeAntworten({ ...g, antwort });
 }
 
 /**
- * Haben alle geantwortet? Dann kommen die Ansprueche dran - jeder einzeln, und
- * jeder muss vom anderen Team bestaetigt werden. Sonst koennte man einfach
- * draufdruecken und haette gewonnen.
+ * Haben alle geantwortet? Dann kommen die Ansprueche dran - EINER NACH DEM
+ * ANDEREN, und jeder muss vom Kapitaen des anderen Teams bestaetigt werden.
+ * Sonst koennte man einfach draufdruecken und haette gewonnen.
  */
 function pruefeAntworten(g) {
   if (g.antwort.some((a) => a === null)) return g;
 
-  const ansprueche = g.antwort.map((a, nr) => (a === "leer" ? nr : -1)).filter((nr) => nr >= 0);
+  const ansprueche = g.antwort.map((a, i) => (a === "leer" ? i : -1)).filter((i) => i >= 0);
   if (!ansprueche.length) return naechsteRunde(g);
   return { ...g, phase: "bestaetigen", leer: { nr: ansprueche[0], rest: ansprueche.slice(1) } };
 }
 
 /**
- * Einen Schluck an ein Teammitglied geben. Aufteilen darf jeder aus dem Team,
- * dem die Schluecke gehoeren - auch fuer den Partner.
+ * Einen Schluck an ein Teammitglied geben. Aufteilen darf nur der Kapitaen,
+ * und nur innerhalb des eigenen Teams.
  */
 export function verteile(g, playerId, zielId) {
   if (g.phase !== "verteilen") return g;
-  const wer = platzVon(g, playerId);
-  const ziel = platzVon(g, zielId);
+  const wer = spielerNr(g, playerId);
+  const ziel = spielerNr(g, zielId);
   if (wer < 0 || ziel < 0) return g;
-  if (!KAPITAEN.includes(wer)) return g; // nur der Kapitaen teilt auf
+  if (!istKapitaen(g, playerId)) return g;
 
-  const team = PLAETZE[wer].team;
-  if (PLAETZE[ziel].team !== team) return g; // nur im eigenen Team
+  const team = g.teamOf[wer];
+  if (g.teamOf[ziel] !== team) return g;  // nur im eigenen Team
   if (g.offen[team] <= 0) return g;
-  if (g.fertig[ziel]) return g;              // wer leer hat, trinkt nicht mehr
+  if (g.fertig[ziel]) return g;           // wer leer hat, trinkt nicht mehr
 
   const getrunken = [...g.getrunken];
   getrunken[ziel]++;
@@ -391,13 +490,13 @@ export function verteile(g, playerId, zielId) {
 /** Vertippt? Einen schon vergebenen Schluck wieder zuruecknehmen. */
 export function verteilenZurueck(g, playerId, zielId) {
   if (g.phase !== "verteilen") return g;
-  const wer = platzVon(g, playerId);
-  const ziel = platzVon(g, zielId);
+  const wer = spielerNr(g, playerId);
+  const ziel = spielerNr(g, zielId);
   if (wer < 0 || ziel < 0) return g;
-  if (!KAPITAEN.includes(wer)) return g;
+  if (!istKapitaen(g, playerId)) return g;
 
-  const team = PLAETZE[wer].team;
-  if (PLAETZE[ziel].team !== team) return g;
+  const team = g.teamOf[wer];
+  if (g.teamOf[ziel] !== team) return g;
   if (!(g.letzte?.verteilt[ziel] > 0)) return g;
 
   const getrunken = [...g.getrunken];
@@ -414,21 +513,35 @@ export function verteilenZurueck(g, playerId, zielId) {
 // Bestaetigen
 // ---------------------------------------------------------------------------
 
-/** Wer ist gerade mit einem Anspruch dran? */
+/** Wer ist gerade mit einem Anspruch dran? Die Nummer der Person. */
 export const anspruchVon = (g) => (g.phase === "bestaetigen" ? g.leer?.nr ?? null : null);
 
-/** Darf dieser Spieler ueber den offenen Anspruch entscheiden? */
+/** Wie viele Ansprueche warten noch, diesen mitgezaehlt? */
+export const ansprueche = (g) => (g.phase === "bestaetigen" ? 1 + (g.leer?.rest.length ?? 0) : 0);
+
+/** Wer ist gerade gefragt? Der Kapitaen der Gegenseite. */
+export const bestaetigerVon = (g) =>
+  g.phase === "bestaetigen" ? kapitaenVon(g, 1 - g.teamOf[g.leer.nr]) : null;
+
+/**
+ * Darf diese Person ueber den offenen Anspruch entscheiden?
+ *
+ * Nur der KAPITAEN des anderen Teams - genau wie beim Aufteilen. Sagen zwei
+ * Leute in derselben Runde "leer", kommen die Ansprueche nacheinander, und dann
+ * klopfen sonst beide Handys der Gegenseite um dieselbe Frage: wer zuerst
+ * tippt, entscheidet fuer beide, und dem anderen springt das Bild weg, ohne
+ * dass er weiss warum.
+ */
 export function darfBestaetigen(g, playerId) {
   if (g.phase !== "bestaetigen") return false;
-  const wer = platzVon(g, playerId);
-  return wer >= 0 && PLAETZE[wer].team !== PLAETZE[g.leer.nr].team;
+  return bestaetigerVon(g)?.id === playerId;
 }
 
 /** Den naechsten Anspruch vorholen - oder die Runde beenden. */
 function naechsterAnspruch(g, fertig) {
-  // Gewonnen hat, wessen beide Flaschen leer sind.
+  // Gewonnen hat das Team, dessen Flaschen alle leer sind.
   for (const t of [0, 1]) {
-    if (teamPlaetze(t).every((nr) => fertig[nr])) {
+    if (teamSpieler(g, t).every((i) => fertig[i])) {
       return { ...g, fertig, leer: null, phase: "finished", sieger: t };
     }
   }
@@ -438,9 +551,9 @@ function naechsterAnspruch(g, fertig) {
 }
 
 /**
- * Das andere Team bestaetigt. Damit ist EINE Flasche leer - gewonnen hat ein
- * Team erst, wenn beide leer sind. Bis dahin schnippst der Fertige weiter mit,
- * bekommt aber nichts mehr zu trinken.
+ * Der Kapitaen des anderen Teams bestaetigt. Damit ist EINE Flasche leer -
+ * gewonnen hat ein Team erst, wenn alle seine leer sind. Bis dahin schnippst
+ * der Fertige weiter mit, bekommt aber nichts mehr zu trinken.
  */
 export function leerBestaetigen(g, playerId) {
   if (!darfBestaetigen(g, playerId)) return g;
@@ -470,7 +583,7 @@ export function naechsteRunde(g) {
     reihe: reihenfolge((g.reihe[0] + 1) % PLAETZE.length),
     dran: 0,
     korken: startKorken(),
-    antwort: [null, null, null, null],
+    antwort: g.players.map(() => null),
     leer: null,
     schuss: null,
   };
@@ -478,7 +591,7 @@ export function naechsteRunde(g) {
 
 /** Wie viel hat ein Team zusammen getrunken? Nur zur Anzeige. */
 export const teamGetrunken = (g, team) =>
-  teamPlaetze(team).reduce((summe, nr) => summe + g.getrunken[nr], 0);
+  teamSpieler(g, team).reduce((summe, i) => summe + g.getrunken[i], 0);
 
 // ---------------------------------------------------------------------------
 // Wenn jemand weg ist
@@ -488,14 +601,15 @@ export const teamGetrunken = (g, team) =>
 export function wartetAufLeber(g) {
   if (!g || g.phase === "finished") return [];
 
-  // Ein Anspruch liegt vor - jetzt sind die beiden vom anderen Team gefragt.
+  // Ein Anspruch liegt vor - gefragt ist der Kapitaen des anderen Teams.
   if (g.phase === "bestaetigen") {
-    return teamPlaetze(1 - PLAETZE[g.leer.nr].team).map((i) => g.players[i]?.id).filter(Boolean);
+    const id = bestaetigerVon(g)?.id;
+    return id ? [id] : [];
   }
 
   // Die Frage nach der Flasche: alle, die noch nicht geantwortet haben.
   if (g.phase === "leerfrage") {
-    return g.antwort.map((a, nr) => (a === null ? g.players[nr]?.id : null)).filter(Boolean);
+    return g.antwort.map((a, i) => (a === null ? g.players[i]?.id : null)).filter(Boolean);
   }
 
   // Aufteilen: BEIDE Teams gleichzeitig, aber je nur der Kapitaen.
@@ -511,13 +625,12 @@ export function wartetAufLeber(g) {
 }
 
 /**
- * Diesen Spieler ueberspringen, weil er zu lange weg ist: sein Schuss faellt
- * aus, sein Korken bleibt liegen, wo er liegt.
+ * Diese Person ueberspringen, weil sie zu lange weg ist: ihr Schuss faellt
+ * aus, ihr Korken bleibt liegen, wo er liegt.
  */
 export function ueberspringenLeber(g, playerId) {
   if (!g || g.phase !== "play") return g;
-  const nr = platzVon(g, playerId);
-  if (nr < 0 || nr !== amZug(g)) return g;
+  if (!istDran(g, playerId)) return g;
 
   const next = zugVorbereiten({ ...g, dran: g.dran + 1 });
   return rundeVorbei(next) ? rundeAuswerten(next) : next;
