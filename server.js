@@ -249,10 +249,13 @@ io.on("connection", (socket) => {
   });
 
   /** Eine neue Runde in derselben Lobby beginnen. */
-  function neueRunde(lobby) {
+  function neueRunde(lobby, besetzung = null) {
     const start = SPIELE[lobby.spiel] ?? initGame;
+    const knapp = (p) => (p ? { id: p.id, name: p.name, avatar: p.avatar } : null);
+    // Leberschuss bekommt die vier PLAETZE, nicht die Spielerliste: darin steht
+    // auch, welcher Platz leer bleibt und damit vom Partner mitgeschnippst wird.
     lobby.game = start(
-      lobby.players.map((p) => ({ id: p.id, name: p.name, avatar: p.avatar })),
+      (besetzung ?? lobby.players).map(knapp),
       undefined,
       lobby.players.find((p) => p.isHost)?.id ?? lobby.players[0].id
     );
@@ -298,10 +301,13 @@ io.on("connection", (socket) => {
   });
 
   /**
-   * Platz tauschen. Bei Leberschuss ist die Reihenfolge in der Spielerliste
-   * zugleich die Sitzordnung: 0 und 1 sind Team 1, 2 und 3 Team 2, und die
-   * beiden linken Plaetze sind die Kapitaene. Wer sich woanders hinsetzt,
-   * tauscht mit dem, der da sitzt - so bleiben immer alle vier auf Plaetzen.
+   * Einen Platz nehmen. Vier Plaetze: 0 und 1 sind Team 1, 2 und 3 Team 2, und
+   * die beiden linken sind die Kapitaene.
+   *
+   * Es muessen nicht alle vier besetzt sein. Bleibt ein Platz frei, schnippst
+   * der Partner beide Korken seiner Seite - so geht auch 2 gegen 1 und
+   * 1 gegen 1. Los geht es, sobald jeder aus der Lobby sitzt und in beiden
+   * Teams jemand ist.
    */
   socket.on("platzWaehlen", ({ nr } = {}) => {
     const found = findBySocket(socket.id);
@@ -320,14 +326,26 @@ io.on("connection", (socket) => {
     }
     lobby.lastActivity = Date.now();
 
-    // Sitzen alle vier, geht es los - die Sitzordnung IST die Spielerliste.
-    if (lobby.plaetze.every((id) => id !== null)) {
-      lobby.players = lobby.plaetze.map((id) => lobby.players.find((p) => p.id === id));
+    if (losGehtsLeber(lobby)) {
+      const besetzung = lobby.plaetze.map((id) => lobby.players.find((p) => p.id === id) ?? null);
       lobby.plaetze = null;
-      return neueRunde(lobby);
+      return neueRunde(lobby, besetzung);
     }
     io.to(lobby.code).emit("lobby", lobbyView(lobby));
   });
+
+  /**
+   * Kann es losgehen? Jeder aus der Lobby muss sitzen, und in jedem Team muss
+   * mindestens einer sein.
+   *
+   * Ohne die erste Bedingung faenge das Spiel an, sobald zwei sitzen - die
+   * anderen beiden staenden dann daneben, ohne je gefragt worden zu sein.
+   */
+  function losGehtsLeber(lobby) {
+    const sitzen = lobby.plaetze.filter(Boolean);
+    if (sitzen.length !== lobby.players.length) return false;
+    return lobby.plaetze.slice(0, 2).some(Boolean) && lobby.plaetze.slice(2).some(Boolean);
+  }
 
   /** Die Platzwahl abbrechen - zurueck in die Lobby. Nur der Host. */
   socket.on("platzwahlAus", () => {
@@ -348,8 +366,8 @@ io.on("connection", (socket) => {
     if (lobby.game) return;
     if (istSpiel(spiel)) lobby.spiel = spiel;
 
-    // Jedes Spiel hat seine eigene Spielerzahl: Leberschuss ist 2 gegen 2,
-    // da gibt es genau vier Ecken und vier Kronkorken.
+    // Jedes Spiel hat seine eigene Spielerzahl. Leberschuss geht von zwei bis
+    // vier: vier Korken sind es immer, aber ein Team darf auch nur einer sein.
     const g = grenzen(lobby.spiel);
     if (lobby.players.length < g.min || lobby.players.length > g.max) {
       const wie = g.min === g.max ? `genau ${g.min}` : `${g.min} bis ${g.max}`;
