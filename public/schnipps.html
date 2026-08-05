@@ -92,7 +92,7 @@
 import {
   initLeber, schuss, amZug, letzteBewegung,
   pfeilRichtung, balkenKraft, teamSpieler, aufstellung,
-  verteile, antworte, leerBestaetigen, leerAblehnen, teamGetrunken,
+  verteile, antworte, darfLeerSagen, leerBestaetigen, leerAblehnen, teamGetrunken,
   kapitaenVon, bestaetigerVon, ansprueche,
   PLAETZE, TEAM_NAME,
 } from "/game/leber.js";
@@ -205,7 +205,11 @@ function anzeigen() {
     hinweisEl.textContent = `${verteilzeile() || "Nichts getroffen."}  ·  ${
       SPIELER[nr].name
     }: Flasche leer?`;
-    knopf(knopfEl, "knopf", "🍾 Leer", () => tuIt(antworte(g, SPIELER[nr].id, true)));
+    // "Leer" nur, wenn ueberhaupt getrunken wurde.
+    const darf = darfLeerSagen(g, SPIELER[nr].id);
+    knopf(knopfEl, "knopf", darf ? "🍾 Leer" : "🍾 Leer (nichts getrunken)",
+          darf ? () => tuIt(antworte(g, SPIELER[nr].id, true)) : () => {});
+    if (knopfEl.style) knopfEl.style.opacity = darf ? "" : "0.4";
     knopf(knopf2El, "knopf2", "Noch nicht", () => tuIt(antworte(g, SPIELER[nr].id, false)));
     return;
   }

@@ -357,24 +357,45 @@ function korkenMod(r, z, w) {
   return r - 0.13 * tief * (0.5 + 0.5 * Math.cos(RIFFEL * w));
 }
 
-function korkenNetz(rand, deckel) {
+/**
+ * Ein grobes Profil fuer die Bewegung: dieselbe Silhouette, aber nur vier
+ * Ringe statt acht. Die feinen Stufen am Deckelrand sieht man an einem
+ * fliegenden Korken ohnehin nicht.
+ */
+const KORKEN_PROFIL_GROB = [[0, 1.34], [0.30, 1.50], [0.48, 1.36], [0.62, 0.40], [0.63, 0]];
+
+function korkenNetz(rand, deckel, profil = KORKEN_PROFIL, seiten = RIFFEL * 3) {
   return [
     // Boden - sieht man nie, schließt aber den Umriss sauber ab
-    ...drehkoerper([[0, 0], [0, 1.34]], RIFFEL, () => rand),
-    ...drehkoerper(KORKEN_PROFIL, RIFFEL * 3, (z) => (z < 0.45 ? rand : deckel), korkenMod),
+    ...drehkoerper([[0, 0], [0, 1.34]], Math.min(RIFFEL, seiten), () => rand),
+    ...drehkoerper(profil, seiten, (z) => (z < 0.45 ? rand : deckel), korkenMod),
   ];
 }
 
-const KORKEN_NETZE = [
-  korkenNetz(
+const KORKEN_HAUT = [
+  [
     { farbe: [150, 152, 158], haerte: 30, staerke: 0.85, dicht: true },
-    { farbe: [206, 208, 214], haerte: 26, staerke: 0.75, dicht: true }
-  ),
-  korkenNetz(
+    { farbe: [206, 208, 214], haerte: 26, staerke: 0.75, dicht: true },
+  ],
+  [
     { farbe: [26, 78, 122], haerte: 30, staerke: 0.85, dicht: true },
-    { farbe: [48, 122, 182], haerte: 26, staerke: 0.75, dicht: true }
-  ),
+    { farbe: [48, 122, 182], haerte: 26, staerke: 0.75, dicht: true },
+  ],
 ];
+
+const KORKEN_NETZE = KORKEN_HAUT.map(([r, d]) => korkenNetz(r, d));
+
+/**
+ * Dasselbe noch einmal, nur grob - fuer die halbe Sekunde, in der ein Korken
+ * fliegt.
+ *
+ * Ein feiner Korken kostet rund 380 Zeichenbefehle. Vier davon, sechzig mal je
+ * Sekunde, das schafft kein Handy fluessig. Solange sich etwas bewegt, sieht
+ * ohnehin niemand die Riffelung am Rand - da tun 18 Seiten und vier Ringe es
+ * auch, und das sind noch 60 Befehle. Sobald alles stillsteht, wird wieder
+ * fein gezeichnet.
+ */
+const KORKEN_NETZE_GROB = KORKEN_HAUT.map(([r, d]) => korkenNetz(r, d, KORKEN_PROFIL_GROB, 18));
 
 const FLASCHEN_KORKEN = skaliere(korkenNetz(SILBER, KAPPE_WEISS), MASSTAB);
 const FLASCHEN_KORKEN_Z = 21.55 * MASSTAB;
@@ -716,6 +737,8 @@ function bauen() {
     t.rahmen = { x0, y0, x1, y1 };
   }
 
+  flaschenBacken();
+
   // Maserung der Tischplatte
   tischStriche = [];
   for (let x = -70; x <= 115; x += 4.5) {
@@ -793,7 +816,8 @@ function malName(k, name) {
 }
 
 function malKorken(bild, k, nr) {
-  maleFlaechen(netzFlaechen(KORKEN_NETZE[k.team], k.x, k.y));
+  const netze = bild.schnell ? KORKEN_NETZE_GROB : KORKEN_NETZE;
+  maleFlaechen(netzFlaechen(netze[k.team], k.x, k.y));
 
   // Der eigene Korken bekommt einen Ring, damit man ihn sofort findet -
   // beim Zielen hell, sonst nur angedeutet.
@@ -951,6 +975,63 @@ function leeresBrett(b) {
  * Jetzt wird die Szene einmal auf ein zweites Brett gemalt und danach nur noch
  * aufgelegt. Uebrig bleibt je Bild: ein Bild auflegen, ein Pfeil, ein Balken.
  */
+/**
+ * Jede Flasche EINMAL auf ein eigenes kleines Bild malen.
+ *
+ * Liegt ein Korken hinter einer Flasche, muss sie ueber ihn gemalt werden -
+ * sie steckt ja im vorgebackenen Hintergrund. Das waren jedes Mal ueber
+ * tausend Zeichenbefehle, mitten in der Schussanimation. Dabei aendert sich an
+ * einer Flasche nie etwas: sie steht, und die Kamera steht auch.
+ *
+ * Also wird sie einmal gemalt und danach nur noch aufgelegt - ein Befehl statt
+ * tausend, und Pixel fuer Pixel dasselbe Bild.
+ */
+function flaschenBacken() {
+  for (const t of flaschenTeile) {
+    t.bild = null;
+    const r = t.rahmen;
+    // Etwas Rand: der dunkle Flascheninnenraum reicht minimal ueber die
+    // Flaechen hinaus, und ein halber Bildpunkt Ungenauigkeit schadet nie.
+    const rand = 3;
+    const breit = Math.ceil(r.x1 - r.x0) + 2 * rand;
+    const hoch = Math.ceil(r.y1 - r.y0) + 2 * rand;
+    if (!(breit > 0 && hoch > 0)) continue;
+
+    const off = typeof document.createElement === "function" ? document.createElement("canvas") : null;
+    if (!off?.getContext) continue;
+    off.width = Math.round(breit * dprJetzt);
+    off.height = Math.round(hoch * dprJetzt);
+    const octx = off.getContext("2d");
+    if (!octx) continue;
+
+    // Verschoben zeichnen, damit die Flasche im kleinen Bild oben links sitzt.
+    octx.setTransform(dprJetzt, 0, 0, dprJetzt, 0, 0);
+    octx.translate(-(r.x0 - rand), -(r.y0 - rand));
+
+    const vorher = ctx;
+    ctx = octx;
+    malFlascheInnen(t.x, t.y);
+    maleFlaechen(t.flaechen);
+    ctx = vorher;
+
+    t.bild = off;
+    t.bildX = r.x0 - rand;
+    t.bildY = r.y0 - rand;
+    t.bildB = breit;
+    t.bildH = hoch;
+  }
+}
+
+/** Eine Flasche ueber den Korken legen - als fertiges Bild, wenn moeglich. */
+function flascheDrueber(t) {
+  if (t.bild) {
+    ctx.drawImage(t.bild, t.bildX, t.bildY, t.bildB, t.bildH);
+    return;
+  }
+  malFlascheInnen(t.x, t.y);
+  maleFlaechen(t.flaechen);
+}
+
 function malen(bild) {
   const b = cv.getBoundingClientRect();
   const breit = Math.round(b.width);
@@ -1052,10 +1133,7 @@ function szene(bild, b) {
       const rand = Math.abs(proj(e.k.x + KORKEN_R * 1.6, e.k.y, MATTE_Z).x - p.x);
       return p.x > r.x0 - rand && p.x < r.x1 + rand && p.y > r.y0 - rand && p.y < r.y1 + rand;
     });
-    if (verdeckt) {
-      malFlascheInnen(d.flasche.x, d.flasche.y);
-      maleFlaechen(d.flasche.flaechen);
-    }
+    if (verdeckt) flascheDrueber(d.flasche);
   }
 
   // Von oben ist Platz fuer die Namen - und genau dann will man wissen, wessen
