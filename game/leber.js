@@ -203,15 +203,29 @@ export const platzVon = (g, playerId) => plaetzeVon(g, playerId)[0] ?? -1;
  * braucht er auch den Blick von der jeweiligen Ecke. Ein fester Blickwinkel
  * waere bei 1 gegen 1 die Haelfte der Zuege der falsche.
  *
- * Genommen wird der naechste eigene Platz, der in dieser Runde noch drankommt.
- * Ist man selbst am Zug, ist das genau der Korken, der gerade geschnippst wird;
- * wartet man, schaut man schon von der Ecke, von der man als naechstes
- * schiesst.
+ * `letzter` ist der Platz, von dem gerade geschaut wird. Er wird BEIBEHALTEN,
+ * solange man nicht selbst dran ist - und das ist der Sinn des Ganzen:
+ *
+ * Wechselt der Blick, verschiebt sich das ganze Bild. Passiert das in dem
+ * Moment, in dem der Korken zur Ruhe kommt, sieht es aus, als spraengen alle
+ * Korken um ein paar Zentimeter zurueck - und ein Korken, der eben noch in der
+ * 3 lag, liegt ploetzlich in der 2. Genau das war zu sehen.
+ *
+ * Jetzt wandert der Blick nur, wenn man selbst an der Reihe ist. Dann ist es
+ * kein Sprung mehr, sondern das Hinsetzen an die andere Ecke.
  */
-export function kameraPlatz(g, playerId) {
+export function kameraPlatz(g, playerId, letzter = -1) {
   const meine = plaetzeVon(g, playerId);
   if (!meine.length) return 0;
   if (meine.length === 1) return meine[0];
+
+  // Ich bin dran - von genau dieser Ecke schnippse ich.
+  if (istDran(g, playerId)) return amZug(g);
+
+  // Sonst bleiben, wo der Blick schon war.
+  if (meine.includes(letzter)) return letzter;
+
+  // Und beim allerersten Mal: die Ecke, von der ich als naechstes schiesse.
   return g.reihe.slice(g.dran).find((nr) => meine.includes(nr)) ?? meine[0];
 }
 

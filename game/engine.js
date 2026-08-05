@@ -331,7 +331,8 @@ export function discardCard(g, playerId) {
 
   const gesamt = cur.card.value * anzahl;
   const plural = gesamt > 1 ? "e" : "";
-  const wieViele = anzahl > 1 ? `${anzahl} Karten` : "ab";
+  // "legt 3 Karten ab" bzw. "legt ab" - der Nachsatz "ab" steht im Text schon.
+  const wieViele = anzahl > 1 ? `${anzahl} Karten ` : "";
   const players = g.players.map((p) =>
     p.id !== playerId
       ? p
@@ -343,13 +344,13 @@ export function discardCard(g, playerId) {
   );
 
   if (cur.kind === "drink") {
-    return { ...g, players, message: `${player.name} legt ${wieViele} ab und trinkt ${gesamt} Schluck${plural}.` };
+    return { ...g, players, message: `${player.name} legt ${wieViele}ab und trinkt ${gesamt} Schluck${plural}.` };
   }
   return {
     ...g,
     players,
     ...addPending(g, playerId, gesamt),
-    message: `${player.name} legt ${wieViele} ab und verteilt ${gesamt} Schluck${plural}.`,
+    message: `${player.name} legt ${wieViele}ab und verteilt ${gesamt} Schluck${plural}.`,
   };
 }
 
