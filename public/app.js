@@ -54,7 +54,7 @@ import {
   initLeber,
   amZug as amZugLeber,
   currentPlayer as currentPlayerLeber,
-  platzVon,
+  kameraPlatz,
   spielerNr,
   teamVon,
   teamPlaetze,
@@ -265,7 +265,7 @@ const regelnHtml = (id) => REGELN[id] ?? "<p>Für dieses Spiel gibt es noch kein
 
 // Steht unten auf der Startseite. Wenn etwas komisch aussieht, sagt diese
 // Nummer sofort, welche Fassung auf dem Handy wirklich laeuft.
-const VERSION = "v41";
+const VERSION = "v42";
 
 // Der aeussere Kasten ist so gross wie der Bildschirm, der innere traegt den
 // Inhalt. Aeltere Fassungen hatten nur einen - dann fiel der Inhalt unten
@@ -2166,7 +2166,6 @@ function leberScreen(g) {
   // Person alles, was mit Trinken zu tun hat. Bei 1 gegen 1 gehoeren einer
   // Person zwei Plaetze - wer beides in einen Topf wirft, zaehlt doppelt.
   const amPlatz = Number.isInteger(nr) ? nr : 0;
-  const meinPlatz = S.mode === "online" ? platzVon(g, S.myId) : amPlatz;
   const meinIch = S.mode === "online" ? spielerNr(g, S.myId) : g.sitze[amPlatz];
   const meinTeam = g.teamOf[meinIch] ?? null;
   const binDran = S.mode === "local" || istDran(g, S.myId);
@@ -2343,10 +2342,12 @@ function leberAnbauen(g) {
 function leberKamera(g) {
   if (L.abspielen) return;
 
-  // Jeder sitzt auf SEINEM Platz und schaut von dort - nicht ueber die
-  // Schulter dessen, der gerade dran ist. Nur am gemeinsam benutzten Handy
-  // wandert der Blick mit, da wird es ja herumgereicht.
-  const meiner = S.mode === "online" ? platzVon(g, S.myId) : amZugLeber(g);
+  // Jeder schaut von SEINER Ecke - nicht ueber die Schulter dessen, der gerade
+  // dran ist. Wer zwei Korken hat, bekommt den Blick von der Ecke, aus der er
+  // als naechstes schnippst: bei 1 gegen 1 also mal von links, mal von rechts.
+  // Nur am gemeinsam benutzten Handy wandert der Blick immer mit, da wird es ja
+  // herumgereicht.
+  const meiner = S.mode === "online" ? kameraPlatz(g, S.myId) : amZugLeber(g);
   const nr = meiner >= 0 ? meiner : 0;
 
   // Von oben: nach der Runde immer, waehrend der Runde auf Knopfdruck.
@@ -2500,12 +2501,28 @@ function einpassen() {
   rahmen.style.overflowY = noetig * skala > platz + 1 ? "auto" : "hidden";
 }
 
-// Adressleiste auf, Adressleiste zu, Handy gedreht, Tastatur aufgegangen:
-// alles aendert die Hoehe, und dann muss neu gerechnet werden.
+/**
+ * Adressleiste auf, Adressleiste zu, Handy gedreht, Tastatur aufgegangen:
+ * alles aendert die Hoehe. Dann muss nicht nur neu gerechnet, sondern auch das
+ * Spielfeld neu vermessen werden - es haengt an einem Canvas, und dessen
+ * Bildpunkte richten sich nach seiner Groesse.
+ *
+ * Gebuendelt auf ein Bild: waehrend die Adressleiste einfaehrt, feuert `resize`
+ * dutzendfach, und jedes Mal alles neu zu backen waere sichtbares Ruckeln.
+ */
+let passTimer = 0;
+function neuPassen() {
+  if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(passTimer);
+  passTimer = requestAnimationFrame(() => {
+    einpassen();
+    if (S.screen === "game" && S.game?.game === "leber") leberAnbauen(S.game);
+  });
+}
+
 if (typeof window !== "undefined" && window.addEventListener) {
-  window.addEventListener("resize", einpassen);
-  window.addEventListener("orientationchange", () => setTimeout(einpassen, 120));
-  window.visualViewport?.addEventListener("resize", einpassen);
+  window.addEventListener("resize", neuPassen);
+  window.addEventListener("orientationchange", () => setTimeout(neuPassen, 120));
+  window.visualViewport?.addEventListener("resize", neuPassen);
 }
 
 function render() {

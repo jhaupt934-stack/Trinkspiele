@@ -124,12 +124,15 @@ button.tile {
 }
 button.tile:active { border-color: var(--mint); }
 
-/* Die Knopfzeile sitzt immer ganz unten am Bildschirm, nicht direkt unter dem
-   Text. `margin-top: auto` schiebt sie in der Spalte nach unten - dadurch ist
-   sie auf jedem Handy an derselben Stelle, auch wenn oben wenig steht. */
+/* KEIN `margin-top: auto` hier, so verlockend es aussieht.
+   Ein automatischer Rand schluckt in einer Flex-Spalte den gesamten freien
+   Platz - und zwar bevor irgendein Element wachsen darf. Das Spielfeld bei
+   Leberschuss blieb dadurch auf seiner Mindesthoehe stehen, und zwischen ihm
+   und den Knoepfen klaffte der halbe Bildschirm. Wer unten stehen soll, sagt
+   das ueber flex-grow beim NACHBARN (siehe .lbuehne). */
 .actions {
   position: sticky; bottom: 0; z-index: 20;
-  margin-top: auto;
+  margin-top: 10px;
   padding: 14px 0 0;
   background: linear-gradient(to top, var(--bg) 0%, var(--bg) 68%, rgba(20,16,49,0));
 }
@@ -795,12 +798,24 @@ button.step {
 
 /* Das Spielfeld nimmt, was uebrig ist. Feste Hoehe waere falsch: auf einem
    kleinen Handy schoebe sie den Rest aus dem Bild, auf einem grossen bliebe
-   unten Platz liegen. */
+   unten Platz liegen.
+   `flex-basis: 0` und nicht `auto`: der Inhalt ist ein Canvas mit
+   `height: 100%`, das ergibt als Ausgangshoehe null oder etwas Zufaelliges.
+   Von null aus wachsen ist eindeutig. */
 .lbuehne, .blatt > .lbuehne {
-  flex: 1 1 auto; min-height: 130px; max-height: 620px;
+  flex: 1 1 0; min-height: 150px; position: relative;
   margin: 0 0 10px; border-radius: 14px; overflow: hidden;
 }
-.lfeld { display: block; width: 100%; height: 100%; touch-action: none; }
+/* Das Canvas liegt HERAUSGELOEST im Kasten, nicht darin.
+   Mit `height: 100%` haengt es davon ab, ob der Browser die Hoehe des
+   Flex-Kastens als feste Zahl weiterreicht - tut er das nicht, faellt das
+   Canvas auf seine eigene Groesse zurueck und bleibt ein Briefmarkenbild in
+   einem grossen leeren Kasten. Genau so sah es aus. `position: absolute` mit
+   `inset: 0` fragt nicht nach: es fuellt den Kasten, so gross der auch ist. */
+.lfeld {
+  position: absolute; inset: 0;
+  display: block; width: 100%; height: 100%; touch-action: none;
+}
 .lhinweis { margin: 0 0 4px; font-size: 14px; font-weight: 700; line-height: 1.35; }
 .lregel { margin: 0; font-size: 11px; line-height: 1.35; color: #8880B8; font-weight: 600; }
 button.stopp { background: linear-gradient(135deg, #FF9F1C, #FF3B6B); }
