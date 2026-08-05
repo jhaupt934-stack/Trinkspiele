@@ -265,7 +265,7 @@ const regelnHtml = (id) => REGELN[id] ?? "<p>Für dieses Spiel gibt es noch kein
 
 // Steht unten auf der Startseite. Wenn etwas komisch aussieht, sagt diese
 // Nummer sofort, welche Fassung auf dem Handy wirklich laeuft.
-const VERSION = "v42";
+const VERSION = "v45";
 
 // Der aeussere Kasten ist so gross wie der Bildschirm, der innere traegt den
 // Inhalt. Aeltere Fassungen hatten nur einen - dann fiel der Inhalt unten
@@ -2389,10 +2389,24 @@ function leberPruefeSchuss(g) {
   if (n <= L.gezeigt || L.abspielen) return;
   L.gezeigt = n;
   const bewegung = letzteBewegung(g);
-  if (!bewegung) return;
-  L.abspielen = { ...bewegung, start: undefined, korken: g.korken };
+  if (!bewegung?.bilder.length) return;
+
+  // WICHTIG: mit dem ERSTEN Bild anfangen, nicht mit `g.korken`.
+  //
+  // In `g` steht der Stand von NACHHER - der Schuss ist ja schon gerechnet.
+  // Wer den hier hineinschreibt, malt einmal die Endlage und laesst die
+  // Animation dann bei null anfangen: der Korken blitzt am Ziel auf und sitzt
+  // im naechsten Bild wieder am Start. Zwischen diesem Bild und dem ersten
+  // Bild der Animation liegt auf dem Handy eine ganze Zehntelsekunde, weil
+  // dazwischen die Szene neu gebacken wird - man sieht es also.
+  L.abspielen = { ...bewegung, start: undefined, korken: zumBild(g, bewegung.bilder[0]) };
+  leberZeichnen(g);
   requestAnimationFrame(leberLauf);
 }
+
+/** Ein Bild der Bewegung mit allem versehen, was zum Zeichnen fehlt. */
+const zumBild = (g, bild) =>
+  bild.map((p, n) => ({ ...g.korken[n], x: p.x, y: p.y, raus: p.raus }));
 
 function leberLauf(jetzt) {
   const a = L.abspielen;
@@ -2404,7 +2418,7 @@ function leberLauf(jetzt) {
   if (a.start === undefined) a.start = jetzt;
 
   const i = Math.max(0, Math.min(Math.round((jetzt - a.start) / 1000 / a.dt), a.bilder.length - 1));
-  a.korken = a.bilder[i].map((p, n) => ({ ...g.korken[n], x: p.x, y: p.y, raus: p.raus }));
+  a.korken = zumBild(g, a.bilder[i]);
   leberZeichnen(g);
 
   if (i >= a.bilder.length - 1) {

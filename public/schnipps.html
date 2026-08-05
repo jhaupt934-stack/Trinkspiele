@@ -312,10 +312,17 @@ function weiter() {
  * Rechenschritt herausgesucht. Ein Schuss dauert dadurch genauso lange wie am
  * Tisch, eine gute halbe Sekunde.
  */
+/** Ein Bild der Bewegung mit allem versehen, was zum Zeichnen fehlt. */
+const zumBild = (bild) => bild.map((p, n) => ({ ...g.korken[n], x: p.x, y: p.y, raus: p.raus }));
+
 function spieleAb() {
   const bewegung = letzteBewegung(g);
-  if (!bewegung) return nachDemSchuss();
-  abspielen = { ...bewegung, start: undefined, korken: g.korken };
+  if (!bewegung?.bilder.length) return nachDemSchuss();
+  // Mit dem ERSTEN Bild anfangen: in g steht der Stand von nachher. Wer den
+  // hier hineinschreibt, laesst den Korken kurz am Ziel aufblitzen und dann
+  // wieder an den Start springen.
+  abspielen = { ...bewegung, start: undefined, korken: zumBild(bewegung.bilder[0]) };
+  malen();
   requestAnimationFrame(lauf);
 }
 
@@ -325,7 +332,7 @@ function lauf(jetzt) {
   if (a.start === undefined) a.start = jetzt;
 
   const i = Math.max(0, Math.min(Math.round((jetzt - a.start) / 1000 / a.dt), a.bilder.length - 1));
-  a.korken = a.bilder[i].map((p, n) => ({ ...g.korken[n], x: p.x, y: p.y, raus: p.raus }));
+  a.korken = zumBild(a.bilder[i]);
   malen();
 
   if (i >= a.bilder.length - 1) {

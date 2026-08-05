@@ -17,7 +17,9 @@
 
 // Relativ und nicht "/game/schnipps.js": so findet nicht nur der Browser die
 // Datei, sondern auch Node beim Prüfen und beim Bilder-Rendern.
-import { FELD, FELDER, FLASCHEN, FLASCHEN_R, ECKEN, KORKEN_R, DEKO, FARBEN } from "../game/schnipps.js";
+import {
+  FELD, FELDER, FLASCHEN, FLASCHEN_ALLE, FLASCHEN_R, ECKEN, KORKEN_R, DEKO, FARBEN,
+} from "../game/schnipps.js";
 
 /** Die vier Ecken, an denen die Spieler sitzen - nur fuer die Kamera. */
 const ECKE = [
@@ -647,6 +649,8 @@ let flaschenTeile = [];   // vorgerechnet, die Flaschen stehen ja still
 let tischStriche = [];
 let mattenRand = [];
 let hintergrund = null;   // fertig gemalter Tisch samt Matte und Flaschen
+let standbild = null;     // die eingefrorene Szene waehrend des Zielens
+let dprJetzt = 1;         // wie fein gerechnet wird, gemerkt aus messen()
 
 /**
  * Kamera einstellen und alles vorrechnen, was sich nie ändert. Die Flaschen
@@ -656,6 +660,8 @@ let hintergrund = null;   // fertig gemalter Tisch samt Matte und Flaschen
 function messen() {
   const b = cv.getBoundingClientRect();
   const dpr = Math.min(window.devicePixelRatio || 1, 3);
+  dprJetzt = dpr;
+  standbild = null; // Kamera oder Groesse anders - das Eingefrorene gilt nicht mehr
   cv.width = Math.round(b.width * dpr);
   cv.height = Math.round(b.height * dpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -668,9 +674,7 @@ function messen() {
   // Erst einmal roh projizieren und schauen, wie groß das wird
   const ecken = [];
   for (const [x, y] of mattenForm(0)) ecken.push(proj(x, y, MATTE_Z));
-  for (const f of FLASCHEN) {
-    for (const y of [f.y, FELD.laenge - f.y]) ecken.push(proj(f.x, y, MATTE_Z + FLASCHE.hoehe));
-  }
+  for (const f of FLASCHEN_ALLE) ecken.push(proj(f.x, f.y, MATTE_Z + FLASCHE.hoehe));
   const minX = Math.min(...ecken.map((p) => p.x));
   const maxX = Math.max(...ecken.map((p) => p.x));
   const minY = Math.min(...ecken.map((p) => p.y));
@@ -687,16 +691,14 @@ function messen() {
 function bauen() {
   // Die vier Flaschen: Flächen einmal beleuchten und merken
   flaschenTeile = [];
-  for (const f of FLASCHEN) {
-    for (const y of [f.y, FELD.laenge - f.y]) {
-      flaschenTeile.push({
-        x: f.x,
-        y,
-        tiefe: proj(f.x, y, MATTE_Z).tiefe,
-        flaechen: netzFlaechen(FLASCHEN_NETZ, f.x, y)
-          .concat(netzFlaechen(FLASCHEN_KORKEN, f.x, y, MATTE_Z + FLASCHEN_KORKEN_Z)),
-      });
-    }
+  for (const f of FLASCHEN_ALLE) {
+    flaschenTeile.push({
+      x: f.x,
+      y: f.y,
+      tiefe: proj(f.x, f.y, MATTE_Z).tiefe,
+      flaechen: netzFlaechen(FLASCHEN_NETZ, f.x, f.y)
+        .concat(netzFlaechen(FLASCHEN_KORKEN, f.x, f.y, MATTE_Z + FLASCHEN_KORKEN_Z)),
+    });
   }
 
   // Wie groß ist jede Flasche auf dem Bildschirm? Das brauchen wir gleich, um
@@ -922,9 +924,72 @@ function hintergrundBacken(b, dpr) {
   return off;
 }
 
+/**
+ * Ein leeres Zeichenbrett in Bildschirmgroesse. Gibt `null` zurueck, wenn es
+ * keins zu haben ist - dann wird eben ohne gearbeitet.
+ */
+function leeresBrett(b) {
+  const off = typeof document.createElement === "function" ? document.createElement("canvas") : null;
+  if (!off || !off.getContext) return null;
+  off.width = Math.round(b.width * dprJetzt);
+  off.height = Math.round(b.height * dprJetzt);
+  const octx = off.getContext("2d");
+  if (!octx) return null;
+  octx.setTransform(dprJetzt, 0, 0, dprJetzt, 0, 0);
+  return { cv: off, ctx: octx };
+}
+
+/**
+ * Ein Bild malen.
+ *
+ * BEIM ZIELEN wird die Szene EINGEFROREN. Waehrend der Pfeil schwingt bewegt
+ * sich am Tisch naemlich gar nichts: die Korken liegen, wo sie liegen, die
+ * Flaschen sowieso. Trotzdem wurden 60 mal je Sekunde vier Korkennetze samt
+ * ihren Verlaeufen neu beleuchtet und notfalls noch eine ganze Flasche
+ * darueber - und genau davon ruckelte der Balken.
+ *
+ * Jetzt wird die Szene einmal auf ein zweites Brett gemalt und danach nur noch
+ * aufgelegt. Uebrig bleibt je Bild: ein Bild auflegen, ein Pfeil, ein Balken.
+ */
 function malen(bild) {
-  const korken = bild.korken;
   const b = cv.getBoundingClientRect();
+  const breit = Math.round(b.width);
+  const hoch = Math.round(b.height);
+
+  if (bild.zielen) {
+    const passt =
+      standbild && standbild.breit === breit && standbild.hoch === hoch &&
+      standbild.nr === bild.zielen.nr;
+
+    if (!passt) {
+      const brett = leeresBrett(b);
+      standbild = null;
+      if (brett) {
+        const vorher = ctx;
+        ctx = brett.ctx;
+        szene(bild, b);
+        ctx = vorher;
+        standbild = { cv: brett.cv, breit, hoch, nr: bild.zielen.nr };
+      }
+    }
+
+    if (standbild) {
+      // Kein clearRect noetig: das Standbild ist deckend und deckt alles ab.
+      ctx.drawImage(standbild.cv, 0, 0, b.width, b.height);
+      maleZielhilfe(b, bild);
+      return;
+    }
+  } else {
+    standbild = null;
+  }
+
+  szene(bild, b);
+  if (bild.zielen) maleZielhilfe(b, bild);
+}
+
+/** Der Tisch mit allem, was daraufliegt - aber ohne Pfeil und Kraftbalken. */
+function szene(bild, b) {
+  const korken = bild.korken;
 
   if (hintergrund) {
     ctx.clearRect(0, 0, b.width, b.height);
@@ -952,37 +1017,52 @@ function malen(bild) {
     .map((k, i) => ({ k, i, tiefe: proj(k.x, k.y, MATTE_Z).tiefe }))
     .filter((e) => !e.k.raus)
     .sort((a, c) => c.tiefe - a.tiefe);
-  for (const e of liegend) malKorken(bild, e.k, e.i);
 
-  // Von oben ist Platz fuer die Namen - und genau dann will man wissen, wessen
-  // Korken wo liegt.
-  if (vonOben && bild.namen) {
-    for (const e of liegend) malName(e.k, bild.namen[e.i]);
-  }
-
-  // Ein Korken kann hinter einer Flasche liegen. Weil die Flaschen im
-  // vorgebackenen Bild stecken, würde er dann fälschlich davor auftauchen -
-  // also wird in dem Fall die betroffene Flasche noch einmal darüber gemalt.
+  // Korken UND Flaschen in EINER Reihe von hinten nach vorne.
   //
-  // Verglichen wird mit dem Bildschirm-Rahmen der ganzen Flasche, nicht mit
-  // dem Abstand zu ihrem Fuß: eine Flasche ist gut zwanzig Zentimeter hoch,
-  // ein Korken kann also weit oberhalb ihres Standpunkts hinter ihr
-  // hervorlugen.
-  for (const t of flaschenTeile) {
-    const r = t.rahmen;
-    const verdeckt = liegend.some((e) => {
-      if (e.tiefe <= t.tiefe) return false; // der Korken ist vorne, alles gut
+  // Vorher wurden erst alle Korken gemalt und danach jede Flasche, hinter der
+  // einer lag, noch einmal obendrauf. Das ging schief, sobald ein zweiter
+  // Korken VOR derselben Flasche lag: der verschwand dann unter ihr. Auf dem
+  // Handy sah das aus, als tauche ploetzlich eine Flasche zu viel auf oder als
+  // springe eine nach oben.
+  //
+  // Jetzt entscheidet die Tiefe. Eine Flasche wird dabei nur dann wirklich neu
+  // gemalt, wenn vor ihr an der Reihe schon ein Korken lag, der sie ueberdeckt -
+  // sonst steht sie ja unveraendert im vorgebackenen Bild.
+  const reihe = [
+    ...liegend.map((e) => ({ tiefe: e.tiefe, korken: e })),
+    ...flaschenTeile.map((t) => ({ tiefe: t.tiefe, flasche: t })),
+  ].sort((a, c) => c.tiefe - a.tiefe);
+
+  const schonGemalt = [];
+  for (const d of reihe) {
+    if (d.korken) {
+      malKorken(bild, d.korken.k, d.korken.i);
+      schonGemalt.push(d.korken);
+      continue;
+    }
+
+    // Verglichen wird mit dem Bildschirm-Rahmen der GANZEN Flasche, nicht mit
+    // dem Abstand zu ihrem Fuss: eine Flasche ist gut zwanzig Zentimeter hoch,
+    // ein Korken kann also weit oberhalb ihres Standpunkts hinter ihr
+    // hervorlugen.
+    const r = d.flasche.rahmen;
+    const verdeckt = schonGemalt.some((e) => {
       const p = proj(e.k.x, e.k.y, MATTE_Z);
       const rand = Math.abs(proj(e.k.x + KORKEN_R * 1.6, e.k.y, MATTE_Z).x - p.x);
       return p.x > r.x0 - rand && p.x < r.x1 + rand && p.y > r.y0 - rand && p.y < r.y1 + rand;
     });
     if (verdeckt) {
-      malFlascheInnen(t.x, t.y);
-      maleFlaechen(t.flaechen);
+      malFlascheInnen(d.flasche.x, d.flasche.y);
+      maleFlaechen(d.flasche.flaechen);
     }
   }
 
-  if (bild.zielen) maleZielhilfe(b, bild);
+  // Von oben ist Platz fuer die Namen - und genau dann will man wissen, wessen
+  // Korken wo liegt. Die stehen ueber allem, auch ueber den Flaschen.
+  if (vonOben && bild.namen) {
+    for (const e of liegend) malName(e.k, bild.namen[e.i]);
+  }
 }
 
 function maleZielhilfe(b, bild) {
