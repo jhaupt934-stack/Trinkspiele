@@ -68,7 +68,6 @@ import {
   teamGetrunken,
   istKapitaen,
   istDran,
-  darfLeerSagen,
   kapitaenVon,
   bestaetigerVon,
   ansprueche as anspruecheLeber,
@@ -268,7 +267,7 @@ const regelnHtml = (id) => REGELN[id] ?? "<p>Für dieses Spiel gibt es noch kein
 
 // Steht unten auf der Startseite. Wenn etwas komisch aussieht, sagt diese
 // Nummer sofort, welche Fassung auf dem Handy wirklich laeuft.
-const VERSION = "v49";
+const VERSION = "v48";
 
 // Der aeussere Kasten ist so gross wie der Bildschirm, der innere traegt den
 // Inhalt. Aeltere Fassungen hatten nur einen - dann fiel der Inhalt unten
@@ -2229,16 +2228,11 @@ function leberScreen(g) {
 
     if (offen.includes(ichNr)) {
       const p = g.players[ichNr];
-      // "Leer" gibt es nur, wenn ueberhaupt etwas getrunken wurde. Wer noch
-      // keinen Schluck hatte, kann keine leere Flasche haben.
-      const darf = darfLeerSagen(g, p.id);
       text = S.mode === "local" ? `${esc(p.name)} – Flasche leer?` : "Deine Flasche leer?";
       knoepfe = `<div class="row">
            <button class="secondary" data-a="leberNochNicht" data-p="${p.id}">Noch nicht</button>
-           <button data-a="leberIstLeer" data-p="${p.id}"${darf ? "" : " disabled"}>🍾 Leer</button>
-         </div>${
-           darf ? "" : `<p class="sub" style="margin:8px 0 0;text-align:center">Du hast noch keinen Schluck getrunken.</p>`
-         }`;
+           <button data-a="leberIstLeer" data-p="${p.id}">🍾 Leer</button>
+         </div>`;
     } else {
       text = `Warten auf ${offen.map((i) => esc(g.players[i].name)).join(", ")}.`;
     }
@@ -2428,8 +2422,6 @@ function leberZeichnen(g) {
     // Die Namen gehoeren zu den KORKEN, nicht zu den Personen: schnippst einer
     // zwei Korken, steht sein Name eben zweimal da.
     namen: g.sitze.map((i) => g.players[i].name),
-    // Solange etwas fliegt, darf es grob sein - Hauptsache fluessig.
-    schnell: !!L.abspielen,
   });
 }
 
