@@ -265,7 +265,7 @@ const regelnHtml = (id) => REGELN[id] ?? "<p>Für dieses Spiel gibt es noch kein
 
 // Steht unten auf der Startseite. Wenn etwas komisch aussieht, sagt diese
 // Nummer sofort, welche Fassung auf dem Handy wirklich laeuft.
-const VERSION = "v45";
+const VERSION = "v47";
 
 // Der aeussere Kasten ist so gross wie der Bildschirm, der innere traegt den
 // Inhalt. Aeltere Fassungen hatten nur einen - dann fiel der Inhalt unten
@@ -993,11 +993,14 @@ function rowsScreen(g) {
   if (g.revealedNow) {
     const meine = S.mode === "local" ? matches : matches.filter((p) => p.id === S.myId);
     const fremde = S.mode === "local" ? [] : matches.filter((p) => p.id !== S.myId);
+    // Ohne Knopf ist es keine Aufforderung, sondern eine Auskunft - dann auch
+    // kein Kasten. Ein Rahmen soll heissen: hier musst du etwas tun.
+    const nurText = meine.length === 0;
     ablegen = `
-      <div class="panel">
-        <h3>${cur?.card.card.rank} – ${cur?.kind === "drink" ? "selber trinken" : "verteilen"}, ${
-      cur?.card.value
-    } Schluck${cur?.card.value > 1 ? "e" : ""}</h3>
+      <div class="panel${nurText ? " nur-text" : ""}">
+        <h3>${cur?.card.card.rank} ${cur?.card.value}× ${
+      cur?.kind === "drink" ? "selber trinken" : "verteilen"
+    }</h3>
         ${matches.length === 0 ? `<p class="hint" style="margin:0">Passt bei niemandem.</p>` : ""}
         ${meine
           .map((p) => {
@@ -2255,13 +2258,18 @@ function leberScreen(g) {
     knoepfe = `<button class="wide" data-a="leberAktion">Losschnippsen</button>`;
   }
 
-  // Waehrend des Zielens und der Animation bleibt die Kamera, wo sie ist -
-  // sonst springt einem das Feld unter dem Finger weg.
-  // Der Umschalter bleibt waehrend der ganzen Runde da - auch beim Zielen.
-  // Nur waehrend ein Schuss laeuft nicht, da spraenge das Bild mittendrin.
+  // Der Umschalter bleibt waehrend der ganzen Runde da - auch beim Zielen und
+  // auch, waehrend ein Schuss laeuft. Waehrend des Schusses ist er nur GESPERRT,
+  // damit das Bild nicht mittendrin umspringt.
+  //
+  // Frueher wurde er in dieser Zeit weggenommen. Das war der Ruecksprung, den
+  // du gesehen hast: ohne den Knopf ist die Zeile ueber dem Feld niedriger,
+  // das Feld selbst also hoeher - und in dem Moment, in dem der Korken stehen
+  // bleibt, kam der Knopf zurueck, das Feld wurde wieder kuerzer und die ganze
+  // Ansicht rechnete sich neu. Der Korken "teleportierte" dabei ein Stueck.
   const umschalten =
-    g.phase === "play" && !L.abspielen
-      ? `<button class="ghost small" data-a="leberOben">${
+    g.phase === "play"
+      ? `<button class="ghost small" data-a="leberOben"${L.abspielen ? " disabled" : ""}>${
           L.oben ? "Vom Platz" : "Von oben"
         }</button>`
       : "";
@@ -2280,7 +2288,7 @@ function leberScreen(g) {
     <div id="leberBuehne" class="lbuehne"></div>
     <p class="lhinweis">${text}</p>
     ${leberSplitZeile(g)}
-    <div class="actions">${knoepfe}</div>`;
+    <div class="actions fest">${knoepfe}</div>`;
 }
 
 /**
@@ -2289,7 +2297,13 @@ function leberScreen(g) {
  * viel trinkt.
  */
 function leberSplitZeile(g) {
-  if (g.phase === "play" || g.phase === "finished") return "";
+  // Auch wenn nichts dasteht, bleibt die Zeile stehen - LEER, aber da.
+  //
+  // Verschwindet sie, wird das Spielfeld darueber schlagartig groesser, die
+  // ganze Ansicht rechnet sich neu, und alles auf der Matte verrutscht ein
+  // Stueck. Genau in dem Moment, in dem der Korken zur Ruhe kommt.
+  const leer = `<p class="lregel">&nbsp;</p>`;
+  if (g.phase === "play" || g.phase === "finished") return leer;
   const v = g.letzte?.verteilt ?? [];
   const teile = [0, 1]
     .filter((t) => teamSpieler(g, t).some((i) => v[i] > 0))
@@ -2310,7 +2324,7 @@ function leberSplitZeile(g) {
       : `<b>${TEAM_NAME[trifft]} ext ${
           teamSpieler(g, trifft).length === 1 ? "die Flasche" : "beide Flaschen"
         } und macht neu auf.</b>`;
-  if (!teile.length && !mama) return "";
+  if (!teile.length && !mama) return leer;
   return `<p class="lregel">${teile.join(" &nbsp;|&nbsp; ")} ${mama}</p>`;
 }
 
@@ -2347,14 +2361,21 @@ function leberKamera(g) {
   // als naechstes schnippst: bei 1 gegen 1 also mal von links, mal von rechts.
   // Nur am gemeinsam benutzten Handy wandert der Blick immer mit, da wird es ja
   // herumgereicht.
-  const meiner = S.mode === "online" ? kameraPlatz(g, S.myId) : amZugLeber(g);
+  const meiner = S.mode === "online" ? kameraPlatz(g, S.myId, L.platz ?? -1) : amZugLeber(g);
   const nr = meiner >= 0 ? meiner : 0;
+  L.platz = nr;
 
   // Von oben: nach der Runde immer, waehrend der Runde auf Knopfdruck.
   const spielt = g.phase === "play" && !L.oben;
   const art = (spielt ? "spieler" : "oben") + ":" + nr;
   const b = L.cv.getBoundingClientRect();
-  if (art === L.kamera && b.width === L.breite && b.height === L.hoehe) return;
+
+  // Zwei Bildpunkte Spielraum. Neu ausmessen heisst: neu einpassen, und dann
+  // sitzt alles auf der Matte ein bisschen anders. Bei einem halben Bildpunkt
+  // Unterschied ist das den Sprung nicht wert.
+  const gleich =
+    art === L.kamera && Math.abs(b.width - L.breite) < 2 && Math.abs(b.height - L.hoehe) < 2;
+  if (gleich) return;
 
   L.kamera = art;
   L.breite = b.width;

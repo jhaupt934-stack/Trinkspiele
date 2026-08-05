@@ -84,9 +84,16 @@ html, body {
 h1 { font-size: 34px; font-weight: 800; letter-spacing: -0.7px; margin: 0 0 6px; }
 h2 { font-size: 22px; font-weight: 800; letter-spacing: -0.4px; margin: 0 0 6px; }
 .sub { color: var(--muted); font-size: 14px; line-height: 1.5; margin: 0 0 12px; }
+/* Meldungen sind TEXT, kein Kasten.
+   Vorher war jede davon ein eigener gerahmter Block. Auf einem Bildschirm
+   stapelten sich schnell drei davon uebereinander - Kasten, Kasten, Kasten,
+   alle gleich wichtig aussehend, und zusammen nahmen sie die halbe Seite ein.
+   Jetzt: eine Zeile, gedaempft, mit einem schmalen goldenen Strich davor. */
 .msg {
-  font-size: 14px; line-height: 1.45; margin: 8px 0; padding: 10px 12px;
-  background: var(--surface); border-radius: 14px; border-left: 4px solid var(--gold);
+  font-size: 13px; line-height: 1.4; font-weight: 600;
+  margin: 6px 0; padding: 0 0 0 10px;
+  color: var(--muted); background: none; border-radius: 0;
+  border-left: 3px solid var(--gold);
 }
 .label {
   font-size: 11px; color: var(--muted); text-transform: uppercase;
@@ -130,11 +137,15 @@ button.tile:active { border-color: var(--mint); }
    Leberschuss blieb dadurch auf seiner Mindesthoehe stehen, und zwischen ihm
    und den Knoepfen klaffte der halbe Bildschirm. Wer unten stehen soll, sagt
    das ueber flex-grow beim NACHBARN (siehe .lbuehne). */
+/* KEIN `position: sticky` und KEIN eigener Hintergrund mehr.
+   Beides stammt aus der Zeit, als man noch scrollen konnte: die Knopfzeile
+   klebte unten am Bildschirm und deckte mit einem undurchsichtigen Verlauf ab,
+   was darunter durchlief. Seit nichts mehr scrollt, klebt sie an nichts - sie
+   legt sich nur noch ueber das, was eigentlich ueber ihr steht. Beim Busfahren
+   verschwanden dadurch die eigenen Handkarten hinter der Meldung. */
 .actions {
-  position: sticky; bottom: 0; z-index: 20;
   margin-top: 10px;
   padding: 14px 0 0;
-  background: linear-gradient(to top, var(--bg) 0%, var(--bg) 68%, rgba(20,16,49,0));
 }
 .actions > *:first-child { margin-top: 0; }
 /* Kleine Luecke zwischen Auswahlfeld und dem Knopf darunter - sonst kleben
@@ -199,12 +210,21 @@ input.code {
 }
 .avhint { font-size: 12px; color: var(--muted); margin: 6px 0 0; font-weight: 600; }
 
+/* Ein Kasten ist nur noch da, wo auch etwas zu TUN ist - also wo Knoepfe
+   drinstecken. Reine Auskunft steht als Zeile da (.msg, .banner). Dadurch
+   heisst ein Kasten wieder etwas: hier musst du tippen. */
 .panel {
   background: var(--surface); border: 1.5px solid var(--border);
-  border-radius: 20px; padding: 16px; margin: 14px 0;
+  border-radius: 18px; padding: 12px 14px; margin: 10px 0;
 }
 .panel.accent { border-color: var(--mint); }
-.panel h3 { margin: 0; font-size: 17px; font-weight: 800; }
+.panel h3 { margin: 0; font-size: 16px; font-weight: 800; }
+/* Ein Kasten ohne Knopf braucht auch keinen Rahmen. */
+.panel.nur-text {
+  background: none; border: 0; padding: 2px 0; margin: 6px 0;
+  color: var(--muted);
+}
+.panel.nur-text h3 { font-size: 14px; font-weight: 700; color: var(--text); }
 
 .ph { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .ph h3 { flex: 1; min-width: 0; }
@@ -229,10 +249,11 @@ button.minus {
 button.minus:active { background: var(--danger); color: #fff; }
 .panel .hint { color: var(--muted); font-size: 13px; margin: 0 0 12px; }
 
+/* "X blaettert weiter." ist kein Knopf und keine Warnung, sondern eine
+   Auskunft. Also auch kein Kasten mit Rahmen, sondern eine ruhige Zeile. */
 .banner {
-  background: var(--surface); border: 1.5px solid var(--border);
-  border-radius: 16px; padding: 15px; text-align: center;
-  color: var(--muted); font-size: 15px; margin-top: 14px;
+  background: none; border: 0; padding: 6px 0; margin-top: 6px;
+  text-align: center; color: var(--muted); font-size: 14px; font-weight: 600;
 }
 .error { color: var(--danger); font-size: 15px; margin-top: 12px; font-weight: 600; }
 .crash {
@@ -816,8 +837,29 @@ button.step {
   position: absolute; inset: 0;
   display: block; width: 100%; height: 100%; touch-action: none;
 }
-.lhinweis { margin: 0 0 4px; font-size: 14px; font-weight: 700; line-height: 1.35; }
-.lregel { margin: 0; font-size: 11px; line-height: 1.35; color: #8880B8; font-weight: 600; }
+/* --- Feste Hoehen, damit das Spielfeld nicht atmet -------------------------
+ *
+ * Das Spielfeld nimmt, was unter ihm uebrig bleibt. Wird der Text darunter
+ * eine Zeile kuerzer oder verschwindet der Knopf, wird das Feld schlagartig
+ * groesser - und dann rechnet sich die ganze Ansicht neu und ALLES auf der
+ * Matte verrutscht ein Stueck.
+ *
+ * Genau das passierte am Ende jedes Schusses: waehrend des Zielens steht dort
+ * "Stopp", danach steht da nur noch "X ist dran" und der Knopf ist weg. Der
+ * Korken, den man gerade verfolgt hat, sprang dadurch im Moment des
+ * Stillstands ein Stueck zurueck.
+ *
+ * Deshalb: Textzeilen und Knopfzeile behalten ihre Hoehe, egal was drinsteht.
+ */
+.lhinweis {
+  margin: 0 0 4px; font-size: 14px; font-weight: 700; line-height: 1.35;
+  min-height: 2.7em; /* zwei Zeilen - auch lange Namen aendern nichts */
+}
+.lregel {
+  margin: 0; font-size: 11px; line-height: 1.35; color: #8880B8; font-weight: 600;
+  min-height: 1.35em;
+}
+.actions.fest { min-height: 70px; }
 button.stopp { background: linear-gradient(135deg, #FF9F1C, #FF3B6B); }
 
 /* --- Lobby: alles auf einen Bildschirm ------------------------------------ */
@@ -859,8 +901,11 @@ html, body { height: 100%; overflow: hidden; }
 .lleer button { padding: 8px 12px; font-size: 12px; }
 /* Zeile über dem Spielfeld: wie viel jedes Team schon getrunken hat, und der
    Umschalter auf die Draufsicht. */
+/* Feste Hoehe, auch wenn der Umschalter mal nicht da ist (nach der Runde).
+   Sonst waechst das Spielfeld darunter und die ganze Ansicht rechnet sich neu. */
 .lzaehler {
   display: flex; align-items: center; gap: 12px; margin: 0 0 8px;
+  min-height: 34px;
   font-size: 13px; font-weight: 700; color: var(--muted);
 }
 /* Steht nur da, wenn es NICHT 2 gegen 2 ist - sonst ist es keine Nachricht. */
