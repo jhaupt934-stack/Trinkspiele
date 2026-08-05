@@ -30,6 +30,8 @@ import {
   initRace,
   betsOn,
   allBetsIn,
+  startetIn,
+  karteFaellig,
   ZIEL,
   STRECKENKARTEN,
   MIN_EINSATZ,
@@ -265,7 +267,7 @@ const regelnHtml = (id) => REGELN[id] ?? "<p>Für dieses Spiel gibt es noch kein
 
 // Steht unten auf der Startseite. Wenn etwas komisch aussieht, sagt diese
 // Nummer sofort, welche Fassung auf dem Handy wirklich laeuft.
-const VERSION = "v47";
+const VERSION = "v48";
 
 // Der aeussere Kasten ist so gross wie der Bildschirm, der innere traegt den
 // Inhalt. Aeltere Fassungen hatten nur einen - dann fiel der Inhalt unten
@@ -1278,9 +1280,11 @@ function betScreen(g) {
   // Host online nie den Startknopf zu sehen und es geht nicht weiter.
   let footer;
   if (fehlen.length === 0) {
-    footer = binHost
-      ? `<button class="wide" data-a="startRace">🏁 Rennen starten</button>`
-      : `<p class="banner">${esc(playerById(g, g.hostId)?.name ?? "Der Host")} startet gleich.</p>`;
+    // Kein Startknopf mehr: sobald der Letzte gesetzt hat, zaehlt es herunter
+    // und das Rennen laeuft von selbst los.
+    const rest = startetIn(g);
+    footer = `<p class="countdown">${rest > 0 ? rest : "🏁"}</p>
+              <p class="banner">${rest > 0 ? "Gleich geht's los …" : "Und los!"}</p>`;
   } else if (meine && S.mode !== "local") {
     // Schon gesetzt und getrunken - jetzt gibt es nichts mehr zu tun.
     footer = `<p class="banner">Du: <strong>${meine.amount}</strong> auf
@@ -1395,16 +1399,35 @@ function raceScreen(g) {
       marke = cardHtml(s.card, "t", { faceDown: !s.revealed });
     }
 
-    const zellen = HORSE_ORDER.map((suit) => {
-      if (g.horses[suit] !== feld) return `<span class="pf"></span>`;
-      return `<span class="pf ${suit}"><span class="hw">${horseCard(suit, "t")}
-                <span class="stufe">${feld === ZIEL ? "🏁" : feld}</span></span></span>`;
-    }).join("");
+    // Nur noch die Streckenkarte. Die Pferde liegen in einer eigenen Ebene -
+    // siehe unten, sie sollen ja fahren und nicht von Zeile zu Zeile springen.
+    const zellen = HORSE_ORDER.map(() => `<span class="pf"></span>`).join("");
 
     return `<div class="step" style="top:${feld * SCHRITT}px;height:${KARTE_H}px">
               <span class="mk">${marke}</span>${zellen}
             </div>`;
   }).join("");
+
+  /**
+   * Die Pferde in einer eigenen Ebene ueber der Bahn.
+   *
+   * Vorher steckte jedes Pferd in der Zeile seines Feldes. Rueckte es vor,
+   * wurde es in der einen Zeile geloescht und in der naechsten neu gebaut - es
+   * war also schlagartig woanders. Jetzt sitzt jedes Pferd fest in seiner Bahn
+   * und wird nur verschoben. Verschieben laesst sich weich machen, Umbauen
+   * nicht.
+   */
+  const pferde =
+    `<div class="pferde" style="height:${KARTE_H}px"><span></span>` +
+    HORSE_ORDER.map((suit) => {
+      const feld = g.horses[suit];
+      return `<span class="pf ${suit}" data-suit="${suit}" data-feld="${feld}"
+                    style="transform:translateY(${feld * SCHRITT}px)">
+                <span class="hw">${horseCard(suit, "t")}
+                <span class="stufe">${feld === ZIEL ? "🏁" : feld}</span></span>
+              </span>`;
+    }).join("") +
+    `</div>`;
 
   // Trennlinien genau zwischen zwei Stufen.
   const linien = Array.from(
@@ -1412,18 +1435,16 @@ function raceScreen(g) {
     (_, i) => `<span class="rowline" style="top:${i * SCHRITT + SCHRITT / 2 + KARTE_H / 2}px"></span>`
   ).join("");
 
-  const footer = binHost
-    ? `<button class="wide" data-a="flip">Nächste Karte aufdecken</button>`
-    : `<p class="banner">${esc(hostName)} deckt auf.</p>`;
+  // Kein Aufdeck-Knopf mehr - die Karten fallen von selbst, eine nach der
+  // anderen. Man schaut zu, wie am Tisch.
+  const footer = `<p class="banner">Das Rennen läuft.</p>`;
 
-  // Gezogene Karte und "wer ist dran" in einer Zeile - spart Platz.
+  // Gezogene Karte und was gerade passiert ist, in einer Zeile.
   const kopfleiste = `
-    <div class="racehead ${binHost ? "me" : ""}">
+    <div class="racehead">
       ${cardHtml(g.flipped, "t", { faceDown: !g.flipped })}
       <span class="txt">
-        <b>${avatar(playerById(g, g.hostId), true)} ${
-          binHost ? "Du deckst auf" : `${esc(hostName)} deckt auf`
-        }</b>
+        <b>🏇 Rennen läuft</b>
         <i>${g.message ? esc(g.message) : "Gleich geht's los."}</i>
       </span>
     </div>`;
@@ -1436,6 +1457,7 @@ function raceScreen(g) {
         ${bahnen}
         ${linien}
         ${stufen}
+        ${pferde}
       </div>
     </div>
     <div class="actions">${footer}</div>`;
@@ -2181,6 +2203,9 @@ function leberScreen(g) {
     text = `<b>${TEAM_NAME[g.sieger]}</b> hat ${
       allein ? "die Flasche" : "beide Flaschen"
     } leer. Gewonnen!`;
+    // Ohne diese Knoepfe sass man nach dem Sieg fest: kein Weg zurueck in die
+    // Lobby, kein neues Spiel. Es sind dieselben wie bei den Kartenspielen.
+    knoepfe = resultFooter(g);
   } else if (g.phase === "bestaetigen") {
     // Ein Anspruch liegt vor - der KAPITAEN des anderen Teams entscheidet.
     // Sagen mehrere in derselben Runde "leer", kommt einer nach dem anderen.
@@ -2560,6 +2585,79 @@ if (typeof window !== "undefined" && window.addEventListener) {
   window.visualViewport?.addEventListener("resize", neuPassen);
 }
 
+// ---------------------------------------------------------------------------
+// Das Pferderennen laeuft von selbst
+// ---------------------------------------------------------------------------
+//
+// Ausgeloest wird es vom Handy des HOSTS - das ist dasselbe Handy, das die
+// Karten vorher auf Knopfdruck aufgedeckt hat, nur ohne Knopf. Alle anderen
+// bekommen das Ergebnis wie immer vom Server. Die Uhrzeiten stehen im
+// Spielstand, damit alle denselben Countdown sehen und niemand vordraengeln
+// kann.
+
+let rennTimer = 0;
+
+function rennenTreiben() {
+  clearTimeout(rennTimer);
+  const g = S.game;
+  if (!g || g.game !== "race" || S.screen !== "game") return;
+  if (!(S.mode === "local" || g.hostId === S.myId)) return;
+
+  const dranAn =
+    g.phase === "bets" && allBetsIn(g)
+      ? { wann: g.startetUm ?? 0, was: "startRace" }
+      : g.phase === "race" && !g.winner
+        ? { wann: g.naechsteKarteUm ?? 0, was: "flip" }
+        : null;
+  if (!dranAn) return;
+
+  // Nachschauen statt einmal stellen. Ein einzelner Wecker waere zerbrechlich:
+  // geht die Uhr des Servers eine Zehntelsekunde nach, weist er die Karte ab -
+  // und weil sich dann nichts aendert, wuerde auch nie wieder jemand fragen.
+  // Das Rennen bliebe fuer immer stehen. So wird eben nochmal geklopft.
+  const rest = dranAn.wann - Date.now();
+  if (rest > 0) {
+    rennTimer = setTimeout(rennenTreiben, Math.min(rest + 60, 400));
+    return;
+  }
+  dispatch({ type: dranAn.was });
+  rennTimer = setTimeout(rennenTreiben, 400);
+}
+
+/**
+ * Die Pferde von ihrer alten auf die neue Stelle fahren lassen.
+ *
+ * Der Bildschirm wird bei jeder Aenderung komplett neu geschrieben - ein frisch
+ * gebautes Element hat keine Vergangenheit und kann deshalb auch nichts
+ * animieren. Also wird es kurz an die ALTE Stelle gesetzt, einmal gemessen
+ * (das zwingt den Browser, den Stand zu uebernehmen) und dann an die neue -
+ * und diesen Schritt macht er weich.
+ */
+const RENNEN = { felder: {} };
+
+function pferdeFahren(g) {
+  if (g.phase !== "race") {
+    RENNEN.felder = {};
+    return;
+  }
+  const ebene = document.querySelector?.(".pferde");
+  if (!ebene?.querySelectorAll) return;
+
+  for (const el of ebene.querySelectorAll(".pf[data-suit]")) {
+    const suit = el.dataset.suit;
+    const neu = Number(el.dataset.feld);
+    const alt = RENNEN.felder[suit];
+    if (alt !== undefined && alt !== neu) {
+      el.style.transition = "none";
+      el.style.transform = `translateY(${alt * SCHRITT}px)`;
+      void el.offsetHeight; // messen erzwingt die Uebernahme
+      el.style.transition = "";
+      el.style.transform = `translateY(${neu * SCHRITT}px)`;
+    }
+    RENNEN.felder[suit] = neu;
+  }
+}
+
 function render() {
   let html;
   if (S.screen === "name") html = nameScreen();
@@ -2596,11 +2694,20 @@ function render() {
   // Canvas aus, und das muss dann schon seine endgueltige Groesse haben.
   einpassen();
   if (S.screen === "game" && S.game?.game === "leber") leberAnbauen(S.game);
+  if (S.screen === "game" && S.game?.game === "race") {
+    pferdeFahren(S.game);
+    rennenTreiben();
+  }
 
   clearTimeout(tickTimer);
   if (S.screen === "game" && S.game?.game !== "race" && S.game?.phase === "rows") {
     const rest = warteBis(S.game) - Date.now();
     if (rest > 0) tickTimer = setTimeout(render, Math.min(1000, rest + 60));
+  }
+  // Der Countdown vor dem Rennen muss von selbst weiterzaehlen.
+  if (S.screen === "game" && S.game?.game === "race" && S.game.phase === "bets" && allBetsIn(S.game)) {
+    const rest = (S.game.startetUm ?? 0) - Date.now();
+    if (rest > 0) tickTimer = setTimeout(render, Math.min(300, rest + 40));
   }
 
   const focusMe = document.getElementById("nameInput") ?? document.getElementById("codeInput");

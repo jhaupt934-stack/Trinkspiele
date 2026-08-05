@@ -588,6 +588,20 @@ button.step {
 .lanes .bg { top: 0; bottom: 0; }
 .lanes .step { z-index: 2; align-items: center; }
 
+/* Die Pferde: eigene Ebene, gleiches Spaltenraster wie die Zeilen. Jedes sitzt
+   fest in seiner Bahn und wird nur nach unten verschoben - deshalb kann man
+   die Bewegung weich machen. Waeren sie wie frueher Teil der Zeilen, wuerden
+   sie bei jedem Zug neu gebaut und waeren schlagartig woanders. */
+.lanes .pferde {
+  position: absolute; left: 0; right: 0; top: 0; z-index: 3;
+  display: grid; grid-template-columns: 42px repeat(4, 1fr); gap: 6px;
+  pointer-events: none;
+}
+.lanes .pferde .pf {
+  display: flex; align-items: center; justify-content: center; height: 100%;
+  transition: transform .5s cubic-bezier(.34, 1.1, .4, 1);
+}
+
 .step .mk, .step .pf {
   display: flex; align-items: center; justify-content: center; height: 100%;
 }
@@ -659,6 +673,14 @@ button.step {
   font-style: normal; font-size: 13px; color: var(--muted); font-weight: 600; line-height: 1.35;
 }
 .winner { display: flex; justify-content: center; margin: 10px 0 16px; }
+
+/* Der Countdown vor dem Start - eine grosse Zahl, sonst nichts. */
+.countdown {
+  margin: 4px 0 0; text-align: center;
+  font-size: 54px; font-weight: 800; line-height: 1.1;
+  background: linear-gradient(135deg, var(--gold), var(--orange));
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
 
 .offline-bar {
   position: fixed; left: 0; right: 0; bottom: 0;
