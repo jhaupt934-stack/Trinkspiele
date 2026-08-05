@@ -7,8 +7,10 @@
 <title>Leberschuss – Einzeltest</title>
 <style>
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; touch-action: none; }
+  /* dvh statt vh: die Adressleiste des Handys waechst und schrumpft, und vh
+     rechnet immer mit dem groessten Fenster - dann ragt unten etwas heraus. */
   html, body {
-    margin: 0; height: 100%; overflow: hidden;
+    margin: 0; height: 100svh; height: 100dvh; overflow: hidden;
     background: #141031; color: #F8F5FF;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
@@ -60,7 +62,7 @@
 <body>
 <div class="wrap">
   <div class="kopf">
-    <h1>Leberschuss</h1>
+    <h1>Leberschuss <small id="wieviele" style="font-weight:700;color:#A79FD1"></small></h1>
     <div class="zahl" id="stand">0 : 0</div>
     <div class="zahl">Runde <b id="summe">1</b></div>
   </div>
@@ -87,8 +89,9 @@
 
 import {
   initLeber, schuss, amZug, letzteBewegung,
-  pfeilRichtung, balkenKraft, teamPlaetze,
-  verteile, antworte, leerBestaetigen, leerAblehnen, teamGetrunken, kapitaenVon,
+  pfeilRichtung, balkenKraft, teamSpieler, aufstellung,
+  verteile, antworte, leerBestaetigen, leerAblehnen, teamGetrunken,
+  kapitaenVon, bestaetigerVon, ansprueche,
   PLAETZE, TEAM_NAME,
 } from "/game/leber.js";
 import { macheZeichner } from "/leber3d.js";
@@ -102,8 +105,18 @@ const obenEl = document.getElementById("oben");
 const standEl = document.getElementById("stand");
 const zeichner = macheZeichner(cv);
 
-const SPIELER = PLAETZE.map((p, i) => ({ id: "p" + i, name: `Spieler ${i + 1}` }));
+// Wie viele spielen mit? Ueber die Adresse einstellbar: ?leute=2 ist 1 gegen 1,
+// ?leute=3 ist 2 gegen 1. Ohne Angabe die volle Besetzung.
+//
+// Die Abfrage auf `location` ist abgesichert, weil der Bedienungstest diese
+// Datei in Node laufen laesst - dort gibt es keine Adresszeile.
+const SUCHE = typeof location === "undefined" ? "" : location.search;
+const ANZAHL = Math.max(2, Math.min(4, Number(new URLSearchParams(SUCHE).get("leute")) || 4));
+const SPIELER = Array.from({ length: ANZAHL }, (_, i) => ({ id: "p" + i, name: `Spieler ${i + 1}` }));
 const wo = (nr) => (PLAETZE[nr].seite === "nah" ? "vorne" : "hinten") + " " + PLAETZE[nr].hand;
+
+/** Wer schnippst diesen Platz? Bei 1 gegen 1 sind es zwei Plaetze je Person. */
+const amPlatz = (nr) => SPIELER[g.sitze[nr]];
 
 let g = initLeber(SPIELER);
 let zielen = null;    // { nr, phase, t0, richtung, kraft }
@@ -125,7 +138,8 @@ const bild = () => ({
   eigener: g.phase === "play" && !abspielen ? amZug(g) : -1,
   zielen,
   getroffen,
-  namen: SPIELER.map((p) => p.name),
+  // Die Namen gehoeren zu den KORKEN: schnippst einer zwei, steht er zweimal da.
+  namen: g.sitze.map((i) => SPIELER[i].name),
 });
 
 const malen = () => zeichner.zeichne(bild());
@@ -138,14 +152,14 @@ function knopf(el, name, text, aufgabe) {
 }
 
 /** Wer die letzten Schluecke bekommen hat - kurz, damit alle es sehen. */
-function aufteilung() {
+function verteilzeile() {
   const v = g.letzte?.verteilt ?? [];
   const teile = [0, 1]
-    .filter((t) => teamPlaetze(t).some((i) => v[i] > 0))
+    .filter((t) => teamSpieler(g, t).some((i) => v[i] > 0))
     .map(
       (t) =>
         `${TEAM_NAME[t]}: ` +
-        teamPlaetze(t)
+        teamSpieler(g, t)
           .filter((i) => v[i] > 0)
           .map((i) => `${SPIELER[i].name} ${v[i]}`)
           .join(" · ")
@@ -157,30 +171,36 @@ function aufteilung() {
 function anzeigen() {
   summeEl.textContent = g.runde;
   standEl.textContent = `${teamGetrunken(g, 0)} : ${teamGetrunken(g, 1)}`;
+  document.getElementById("wieviele").textContent = aufstellung(g);
   knopf(knopf2El, "knopf2", "", null);
   obenEl.textContent = oben ? "Vom Platz" : "Von oben";
   obenEl.hidden = g.phase !== "play" || !!abspielen;
 
   if (g.phase === "finished") {
-    hinweisEl.textContent = `${TEAM_NAME[g.sieger]} hat beide Flaschen leer. Gewonnen!`;
+    const allein = teamSpieler(g, g.sieger).length === 1;
+    hinweisEl.textContent = `${TEAM_NAME[g.sieger]} hat ${
+      allein ? "die Flasche" : "beide Flaschen"
+    } leer. Gewonnen!`;
     knopf(knopfEl, "knopf", "Neues Spiel", neuesSpiel);
     return;
   }
 
   if (g.phase === "bestaetigen") {
-    const nr = g.leer.nr;
-    const gegner = teamPlaetze(1 - PLAETZE[nr].team)[0];
-    hinweisEl.textContent = `${SPIELER[nr].name} sagt: Flasche leer. ${
-      TEAM_NAME[PLAETZE[gegner].team]
-    } bestätigen?`;
-    knopf(knopfEl, "knopf", "Stimmt", () => tuIt(leerBestaetigen(g, SPIELER[gegner].id)));
-    knopf(knopf2El, "knopf2", "Nee", () => tuIt(leerAblehnen(g, SPIELER[gegner].id)));
+    // Mehrere Ansprueche kommen einer nach dem anderen, und entscheiden darf
+    // jeweils der Kapitaen der Gegenseite.
+    const pruefer = bestaetigerVon(g);
+    const noch = ansprueche(g) - 1;
+    hinweisEl.textContent = `${SPIELER[g.leer.nr].name} sagt: Flasche leer.${
+      noch ? ` (noch ${noch} danach)` : ""
+    } ${pruefer.name} bestätigt?`;
+    knopf(knopfEl, "knopf", "Stimmt", () => tuIt(leerBestaetigen(g, pruefer.id)));
+    knopf(knopf2El, "knopf2", "Nee", () => tuIt(leerAblehnen(g, pruefer.id)));
     return;
   }
 
   if (g.phase === "leerfrage") {
     const nr = g.antwort.findIndex((a) => a === null);
-    hinweisEl.textContent = `${aufteilung() || "Nichts getroffen."}  ·  ${
+    hinweisEl.textContent = `${verteilzeile() || "Nichts getroffen."}  ·  ${
       SPIELER[nr].name
     }: Flasche leer?`;
     knopf(knopfEl, "knopf", "🍾 Leer", () => tuIt(antworte(g, SPIELER[nr].id, true)));
@@ -190,14 +210,17 @@ function anzeigen() {
 
   if (g.phase === "verteilen") {
     // Beide Teams teilen auf - am gemeinsamen Handy eins nach dem anderen.
+    // Ist ein Team nur einer, kommt diese Phase dort gar nicht erst vor.
     const team = g.offen[0] > 0 ? 0 : 1;
-    const [a, b] = teamPlaetze(team);
-    const kap = kapitaenVon(g, team).id; // nur der Kapitaen teilt auf
+    const [a, b] = teamSpieler(g, team);
+    const kap = kapitaenVon(g, team); // nur der Kapitaen teilt auf
     hinweisEl.textContent = `${TEAM_NAME[team]}: ${g.offen[team]} ${
       g.offen[team] === 1 ? "Schluck" : "Schlücke"
-    } – ${kapitaenVon(g, team).name} teilt auf`;
-    knopf(knopfEl, "knopf", SPIELER[a].name + zusatz(a), () => tuIt(verteile(g, kap, SPIELER[a].id)));
-    knopf(knopf2El, "knopf2", SPIELER[b].name + zusatz(b), () => tuIt(verteile(g, kap, SPIELER[b].id)));
+    } – ${kap.name} teilt auf`;
+    knopf(knopfEl, "knopf", SPIELER[a].name + zusatz(a), () => tuIt(verteile(g, kap.id, SPIELER[a].id)));
+    if (b !== undefined) {
+      knopf(knopf2El, "knopf2", SPIELER[b].name + zusatz(b), () => tuIt(verteile(g, kap.id, SPIELER[b].id)));
+    }
     return;
   }
 
@@ -206,7 +229,7 @@ function anzeigen() {
     hinweisEl.textContent = zielen.phase === "kraft" ? "Kraft stoppen." : "Pfeil stoppen.";
     knopf(knopfEl, "knopf", "Stopp", weiter);
   } else {
-    hinweisEl.textContent = `${SPIELER[nr].name} ist dran – Korken ${wo(nr)}.`;
+    hinweisEl.textContent = `${amPlatz(nr).name} ist dran – Korken ${wo(nr)}.`;
     knopf(knopfEl, "knopf", "Losschnippsen", weiter);
   }
 }
@@ -267,7 +290,7 @@ function weiter() {
     const kraft = balkenKraft(seit);
     zielen = null;
     hinweisEl.textContent = "…";
-    g = schuss(g, SPIELER[nr].id, richtung, kraft);
+    g = schuss(g, amPlatz(nr).id, richtung, kraft);
     spieleAb();
     return;
   }

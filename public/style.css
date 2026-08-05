@@ -46,12 +46,40 @@ html, body {
   background-attachment: fixed;
 }
 
+/* --- Nie schieben muessen -------------------------------------------------
+ *
+ * Eine App scrollt nicht. Deshalb ist #app genau so hoch wie der Bildschirm
+ * und laesst nichts durch. Der Inhalt sitzt in #blatt; passt er nicht, rechnet
+ * die Oberflaeche ihn ueber `--skala` als Ganzes kleiner (siehe einpassen() in
+ * app.js). Alles schrumpft dabei gleichmaessig - Schrift, Knoepfe, Abstaende -,
+ * statt dass unten etwas abgeschnitten wird.
+ *
+ * `dvh` statt `vh`: auf dem Handy waechst und schrumpft die Adressleiste, und
+ * `vh` rechnet immer mit dem groessten Fenster. Genau daran lag es, dass man
+ * unten ein Stueck schieben musste. `svh` als Rueckfall fuer aeltere Browser.
+ */
 .app {
   max-width: 620px;
   margin: 0 auto;
-  padding: max(20px, env(safe-area-inset-top)) 18px calc(28px + env(safe-area-inset-bottom));
-  min-height: 100vh;
+  height: 100svh;
+  height: 100dvh;
+  overflow: hidden;
 }
+.blatt {
+  --skala: 1;
+  transform-origin: top left;
+  width: calc(100% / var(--skala));
+  transform: scale(var(--skala));
+  padding: max(20px, env(safe-area-inset-top)) 18px calc(20px + env(safe-area-inset-bottom));
+  min-height: calc(100% / var(--skala));
+  display: flex;
+  flex-direction: column;
+}
+/* In einer Spalte wuerden die Kinder von sich aus zusammengedrueckt, sobald es
+   eng wird - Karten wuerden flach, Knoepfe duenn. Das soll nicht passieren:
+   verkleinert wird als Ganzes ueber --skala, nicht stueckweise. Einzig das
+   Spielfeld darf mitwachsen, das sagt seine eigene Regel weiter unten. */
+.blatt > * { flex: none; }
 
 h1 { font-size: 34px; font-weight: 800; letter-spacing: -0.7px; margin: 0 0 6px; }
 h2 { font-size: 22px; font-weight: 800; letter-spacing: -0.4px; margin: 0 0 6px; }
@@ -96,11 +124,13 @@ button.tile {
 }
 button.tile:active { border-color: var(--mint); }
 
-/* Der Aktionsbereich klebt unten fest - man muss nie scrollen, um zu tippen. */
+/* Die Knopfzeile sitzt immer ganz unten am Bildschirm, nicht direkt unter dem
+   Text. `margin-top: auto` schiebt sie in der Spalte nach unten - dadurch ist
+   sie auf jedem Handy an derselben Stelle, auch wenn oben wenig steht. */
 .actions {
   position: sticky; bottom: 0; z-index: 20;
-  margin-top: 10px;
-  padding: 14px 0 calc(10px + env(safe-area-inset-bottom));
+  margin-top: auto;
+  padding: 14px 0 0;
   background: linear-gradient(to top, var(--bg) 0%, var(--bg) 68%, rgba(20,16,49,0));
 }
 .actions > *:first-child { margin-top: 0; }
@@ -763,7 +793,13 @@ button.step {
 .lteam.t0 .lbalken i { background: linear-gradient(90deg, #9AA0AC, #E6E9F0); }
 .lteam.t1 .lbalken i { background: linear-gradient(90deg, #2A6FA8, #7CC4F5); }
 
-.lbuehne { height: min(58vh, 520px); margin: 0 0 10px; border-radius: 14px; overflow: hidden; }
+/* Das Spielfeld nimmt, was uebrig ist. Feste Hoehe waere falsch: auf einem
+   kleinen Handy schoebe sie den Rest aus dem Bild, auf einem grossen bliebe
+   unten Platz liegen. */
+.lbuehne, .blatt > .lbuehne {
+  flex: 1 1 auto; min-height: 130px; max-height: 620px;
+  margin: 0 0 10px; border-radius: 14px; overflow: hidden;
+}
 .lfeld { display: block; width: 100%; height: 100%; touch-action: none; }
 .lhinweis { margin: 0 0 4px; font-size: 14px; font-weight: 700; line-height: 1.35; }
 .lregel { margin: 0; font-size: 11px; line-height: 1.35; color: #8880B8; font-weight: 600; }
@@ -800,8 +836,9 @@ button.stopp { background: linear-gradient(135deg, #FF9F1C, #FF3B6B); }
 }
 .schild .av { width: 26px; height: 26px; font-size: 16px; }
 
-/* Nichts darf seitlich hinausragen - sonst laesst sich das Handy schieben. */
-html, body { overflow-x: hidden; }
+/* Die Seite selbst laesst sich in KEINE Richtung schieben. Was nicht passt,
+   wird kleiner gerechnet (siehe .blatt weiter oben), nicht weggescrollt. */
+html, body { height: 100%; overflow: hidden; }
 .app { overflow-x: hidden; }
 .lleer { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 8px; }
 .lleer button { padding: 8px 12px; font-size: 12px; }
@@ -810,6 +847,12 @@ html, body { overflow-x: hidden; }
 .lzaehler {
   display: flex; align-items: center; gap: 12px; margin: 0 0 8px;
   font-size: 13px; font-weight: 700; color: var(--muted);
+}
+/* Steht nur da, wenn es NICHT 2 gegen 2 ist - sonst ist es keine Nachricht. */
+.lzaehler .wieviele {
+  font-size: 11px; font-weight: 800; letter-spacing: .3px;
+  background: var(--surface-2); border: 1.5px solid var(--border-strong);
+  border-radius: 9px; padding: 3px 8px; color: var(--muted);
 }
 .lzaehler .t0 b { color: #E6E9F0; }
 .lzaehler .t1 b { color: #7CC4F5; }

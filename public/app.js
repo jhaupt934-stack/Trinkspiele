@@ -55,15 +55,21 @@ import {
   amZug as amZugLeber,
   currentPlayer as currentPlayerLeber,
   platzVon,
+  spielerNr,
   teamVon,
   teamPlaetze,
+  teamSpieler,
+  aufstellung,
   letzteBewegung,
   pfeilRichtung,
   balkenKraft,
   teamGetrunken,
   istKapitaen,
+  istDran,
   kapitaenVon,
-  KAPITAEN,
+  bestaetigerVon,
+  ansprueche as anspruecheLeber,
+  KAPITAENSPLATZ,
   PLAETZE,
   TEAM_NAME,
 } from "/game/leber.js";
@@ -259,9 +265,13 @@ const regelnHtml = (id) => REGELN[id] ?? "<p>Für dieses Spiel gibt es noch kein
 
 // Steht unten auf der Startseite. Wenn etwas komisch aussieht, sagt diese
 // Nummer sofort, welche Fassung auf dem Handy wirklich laeuft.
-const VERSION = "v40";
+const VERSION = "v41";
 
-const el = document.getElementById("app");
+// Der aeussere Kasten ist so gross wie der Bildschirm, der innere traegt den
+// Inhalt. Aeltere Fassungen hatten nur einen - dann fiel der Inhalt unten
+// heraus und man musste schieben.
+const rahmen = document.getElementById("app");
+const el = document.getElementById("blatt") ?? rahmen;
 
 // Laeuft in Phase 2 gerade eine Wartezeit, wird einmal pro Sekunde neu
 // gezeichnet - so zaehlt der Knopf herunter und gibt sich selbst frei.
@@ -681,7 +691,11 @@ function setupScreen() {
  *
  * Zwei Blöcke, klar getrennt, je zwei Plätze. Ein besetzter Platz lässt sich
  * nicht nehmen; den eigenen verlässt man, indem man ihn nochmal antippt oder
- * sich woanders hinsetzt. Sitzen alle vier, geht es von selbst los.
+ * sich woanders hinsetzt.
+ *
+ * Es müssen NICHT alle vier Plätze besetzt sein: bleibt einer frei, schnippst
+ * der Partner beide Korken seiner Seite. Damit geht auch 2 gegen 1 und
+ * 1 gegen 1. Los geht es, sobald jeder sitzt und in beiden Teams jemand ist.
  */
 function plaetzeScreen() {
   const l = S.lobby;
@@ -695,7 +709,7 @@ function plaetzeScreen() {
     const id = plaetze[nr];
     const ich = id === S.myId;
     const frei = !id;
-    const kap = KAPITAEN.includes(nr);
+    const kap = KAPITAENSPLATZ.includes(nr);
     const klick = frei || ich ? `data-a="platzWaehlen" data-i="${ich ? "" : nr}"` : "disabled";
     return `
       <button class="platz ${ich ? "ich" : frei ? "frei" : "belegt"}" ${klick}>
@@ -711,23 +725,33 @@ function plaetzeScreen() {
       <div class="felder">${teamPlaetze(t).map(feld).join("")}</div>
     </div>`;
 
-  const offen = plaetze.filter((id) => !id).length;
+  // Es fehlen nicht die freien Plätze, sondern die Leute ohne Platz.
+  const stehen = l.players.filter((p) => !plaetze.includes(p.id));
+  const beide = plaetze.slice(0, 2).some(Boolean) && plaetze.slice(2).some(Boolean);
+  const hinweis = stehen.length
+    ? `Es fehl${stehen.length === 1 ? "t" : "en"} noch ${stehen
+        .map((p) => esc(p.name))
+        .join(", ")}.`
+    : beide
+      ? "Es geht los …"
+      : "In jedem Team muss jemand sitzen.";
+
   return `
     <h2>Plätze wählen</h2>
     <p class="sub">${
       meiner >= 0
-        ? `Du sitzt bei <strong>${TEAM_NAME[PLAETZE[meiner].team]}</strong>. Noch ${offen} frei.`
-        : `Such dir einen Platz – noch ${offen} frei.`
+        ? `Du sitzt bei <strong>${TEAM_NAME[PLAETZE[meiner].team]}</strong>. ${hinweis}`
+        : `Such dir einen Platz. ${hinweis}`
     }</p>
     ${block(0)}
     <div class="gegen">gegen</div>
     ${block(1)}
-    <p class="regelhinweis">Der Kapitän teilt später die Schlücke seines Teams auf.
-      Sitzen alle vier, geht es los.</p>
+    <p class="regelhinweis">Ein freier Platz ist kein Problem – dann schnippst der
+      Partner beide Korken. Der Kapitän teilt die Schlücke auf.</p>
     ${binHost ? `<div class="actions"><button class="ghost wide" data-a="platzwahlAus">Zurück zur Lobby</button></div>` : ""}`;
 }
 
-/** Name des Hosts im Warteraum. *//** Name des Hosts im Warteraum. */
+/** Name des Hosts im Warteraum. */
 const hostNameLobby = () => S.lobby?.players.find((p) => p.isHost)?.name ?? "der Host";
 
 function lobbyScreen() {
@@ -2137,30 +2161,43 @@ const leberDarf = (g, action, alsWer) =>
 function leberScreen(g) {
   const nr = amZugLeber(g);
   const dran = currentPlayerLeber(g);
-  const meinPlatz = S.mode === "online" ? platzVon(g, S.myId) : nr;
-  const meinTeam = PLAETZE[meinPlatz]?.team ?? null;
+
+  // PLATZ und PERSON auseinanderhalten: der Platz bestimmt die Kamera, die
+  // Person alles, was mit Trinken zu tun hat. Bei 1 gegen 1 gehoeren einer
+  // Person zwei Plaetze - wer beides in einen Topf wirft, zaehlt doppelt.
+  const amPlatz = Number.isInteger(nr) ? nr : 0;
+  const meinPlatz = S.mode === "online" ? platzVon(g, S.myId) : amPlatz;
+  const meinIch = S.mode === "online" ? spielerNr(g, S.myId) : g.sitze[amPlatz];
+  const meinTeam = g.teamOf[meinIch] ?? null;
+  const binDran = S.mode === "local" || istDran(g, S.myId);
 
   let text = "";
   let knoepfe = "";
 
   if (g.phase === "finished") {
-    text = `<b>${TEAM_NAME[g.sieger]}</b> hat beide Flaschen leer. Gewonnen!`;
+    const allein = teamSpieler(g, g.sieger).length === 1;
+    text = `<b>${TEAM_NAME[g.sieger]}</b> hat ${
+      allein ? "die Flasche" : "beide Flaschen"
+    } leer. Gewonnen!`;
   } else if (g.phase === "bestaetigen") {
-    // Ein Anspruch liegt vor - nur das ANDERE Team entscheidet darueber.
+    // Ein Anspruch liegt vor - der KAPITAEN des anderen Teams entscheidet.
+    // Sagen mehrere in derselben Runde "leer", kommt einer nach dem anderen.
     const wer = g.players[g.leer.nr];
-    const gegner = teamPlaetze(1 - PLAETZE[g.leer.nr].team);
-    const ich = S.mode === "local" ? g.players[gegner[0]].id : S.myId;
-    text = `<b>${esc(wer?.name ?? "")}</b> sagt: Flasche leer.`;
+    const pruefer = bestaetigerVon(g);
+    const ich = S.mode === "local" ? pruefer.id : S.myId;
+    const offen = anspruecheLeber(g);
+    const noch = offen > 1 ? ` <span class="sub">(noch ${offen - 1} danach)</span>` : "";
+    text = `<b>${esc(wer?.name ?? "")}</b> sagt: Flasche leer.${noch}`;
     knoepfe = mayAct(g, ich, { type: "leerJa" })
       ? `<div class="row">
            <button class="secondary" data-a="leberNein" data-p="${ich}">Nee</button>
            <button data-a="leberJa" data-p="${ich}">Stimmt</button>
          </div>`
-      : `<p class="sub" style="margin:0">${TEAM_NAME[1 - PLAETZE[g.leer.nr].team]} bestätigt.</p>`;
+      : `<p class="sub" style="margin:0">${esc(pruefer?.name ?? "")} bestätigt.</p>`;
   } else if (g.phase === "leerfrage") {
     // Nach jeder Runde sagt jeder einmal, ob seine Flasche leer ist.
     const offen = g.antwort.map((a, i) => (a === null ? i : -1)).filter((i) => i >= 0);
-    const ichNr = S.mode === "local" ? offen[0] : meinPlatz;
+    const ichNr = S.mode === "local" ? offen[0] : meinIch;
 
     if (offen.includes(ichNr)) {
       const p = g.players[ichNr];
@@ -2182,10 +2219,10 @@ function leberScreen(g) {
       text = `<b>${g.offen[meins]}</b> ${
         g.offen[meins] === 1 ? "Schluck" : "Schlücke"
       } für ${TEAM_NAME[meins]} – wer trinkt?`;
-      const schonWas = teamPlaetze(meins).find((i) => (g.letzte?.verteilt[i] ?? 0) > 0);
+      const schonWas = teamSpieler(g, meins).find((i) => (g.letzte?.verteilt[i] ?? 0) > 0);
       knoepfe =
         `<div class="row">` +
-        teamPlaetze(meins)
+        teamSpieler(g, meins)
           .map((i) => {
             const p = g.players[i];
             const zahl = g.letzte?.verteilt[i] ?? 0;
@@ -2208,7 +2245,7 @@ function leberScreen(g) {
         .map((t) => esc(kapitaenVon(g, t)?.name ?? TEAM_NAME[t]));
       text = andere.length ? `${andere.join(" und ")} teilt noch auf.` : "…";
     }
-  } else if (meinPlatz !== nr) {
+  } else if (!binDran) {
     text = `${avatar(dran, true)} <b>${esc(dran?.name ?? "")}</b> ist dran.`;
   } else if (L.zielen) {
     text = L.zielen.phase === "kraft" ? "Kraft stoppen." : "Pfeil stoppen.";
@@ -2238,6 +2275,7 @@ function leberScreen(g) {
             `<span class="t${t}"><b>${TEAM_NAME[t]}</b> ${teamGetrunken(g, t)}</span>`
         )
         .join("")}
+      ${aufstellung(g) === "2 gegen 2" ? "" : `<span class="wieviele">${aufstellung(g)}</span>`}
       ${umschalten}
     </div>
     <div id="leberBuehne" class="lbuehne"></div>
@@ -2255,21 +2293,24 @@ function leberSplitZeile(g) {
   if (g.phase === "play" || g.phase === "finished") return "";
   const v = g.letzte?.verteilt ?? [];
   const teile = [0, 1]
-    .filter((t) => teamPlaetze(t).some((i) => v[i] > 0))
+    .filter((t) => teamSpieler(g, t).some((i) => v[i] > 0))
     .map(
       (t) =>
         `${TEAM_NAME[t]}: ` +
-        teamPlaetze(t)
+        teamSpieler(g, t)
           .filter((i) => v[i] > 0)
           .map((i) => `${esc(g.players[i].name)} ${v[i]}`)
           .join(" · ")
     );
 
   const m = g.letzte?.mama;
+  const trifft = m && (m[0] || m[1]) ? (m[0] ? 1 : 0) : null;
   const mama =
-    m && (m[0] || m[1])
-      ? `<b>${TEAM_NAME[m[0] ? 1 : 0]} ext beide Flaschen und macht neue auf.</b>`
-      : "";
+    trifft === null
+      ? ""
+      : `<b>${TEAM_NAME[trifft]} ext ${
+          teamSpieler(g, trifft).length === 1 ? "die Flasche" : "beide Flaschen"
+        } und macht neu auf.</b>`;
   if (!teile.length && !mama) return "";
   return `<p class="lregel">${teile.join(" &nbsp;|&nbsp; ")} ${mama}</p>`;
 }
@@ -2331,7 +2372,9 @@ function leberZeichnen(g) {
       g.phase === "play" || L.abspielen
         ? []
         : (g.letzte?.einzeln ?? []).filter(Boolean).map((w) => w.feld),
-    namen: g.players.map((p) => p.name),
+    // Die Namen gehoeren zu den KORKEN, nicht zu den Personen: schnippst einer
+    // zwei Korken, steht sein Name eben zweimal da.
+    namen: g.sitze.map((i) => g.players[i].name),
   });
 }
 
@@ -2391,8 +2434,8 @@ function leberAktion() {
   if (g.phase !== "play") return;
 
   const nr = amZugLeber(g);
-  const meinPlatz = S.mode === "online" ? platzVon(g, S.myId) : nr;
-  if (meinPlatz !== nr || g.korken[nr]?.raus) return;
+  if (S.mode === "online" && !istDran(g, S.myId)) return;
+  if (g.korken[nr]?.raus) return;
 
   if (L.zielen) {
     // Wichtig: der Wert wird JETZT aus der Uhr gerechnet, nicht aus dem
@@ -2409,7 +2452,9 @@ function leberAktion() {
     const { richtung } = L.zielen;
     const kraft = balkenKraft(seit);
     L.zielen = null;
-    dispatch({ type: "schuss", playerId: g.players[nr].id, richtung, kraft });
+    // Nicht g.players[nr] - das waere die nr-te PERSON, nicht die auf dem
+    // Platz. Bei 1 gegen 1 gibt es Platz 2 und 3, aber nur zwei Personen.
+    dispatch({ type: "schuss", playerId: g.players[g.sitze[nr]].id, richtung, kraft });
     return;
   }
 
@@ -2421,6 +2466,47 @@ function leberAktion() {
 // ---------------------------------------------------------------------------
 // Zeichnen
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Nie schieben muessen
+// ---------------------------------------------------------------------------
+//
+// Eine App scrollt nicht. Der Rahmen ist genau so hoch wie der Bildschirm und
+// laesst nichts durch; passt der Inhalt nicht hinein, wird er als GANZES ein
+// Stueck kleiner gerechnet. Alles schrumpft dabei gleichmaessig - Schrift,
+// Knoepfe, Abstaende -, statt dass unten etwas abgeschnitten wird oder man
+// wischen muss.
+//
+// Der naheliegende Weg waere gewesen, jeden Bildschirm einzeln kuerzer zu
+// machen. Das haelt nur bis zum naechsten langen Namen oder dem naechsten
+// kleineren Handy. Einmal nachmessen und nachrechnen gilt dagegen fuer jeden
+// Bildschirm, auch fuer die, die es noch gar nicht gibt.
+
+const MIN_SKALA = 0.55; // darunter wird es unlesbar
+
+function einpassen() {
+  if (!rahmen || el === rahmen || !rahmen.clientHeight) return;
+
+  // Erst zurueck auf 1 - sonst misst man die Hoehe der letzten Verkleinerung.
+  el.style.setProperty("--skala", "1");
+  const platz = rahmen.clientHeight;
+  const noetig = el.scrollHeight;
+
+  const skala = noetig > platz + 1 ? Math.max(MIN_SKALA, platz / noetig) : 1;
+  el.style.setProperty("--skala", String(skala));
+
+  // Reicht selbst die kleinste Stufe nicht - sehr langer Regeltext auf einem
+  // sehr kleinen Handy -, ist Schieben immer noch besser als Abschneiden.
+  rahmen.style.overflowY = noetig * skala > platz + 1 ? "auto" : "hidden";
+}
+
+// Adressleiste auf, Adressleiste zu, Handy gedreht, Tastatur aufgegangen:
+// alles aendert die Hoehe, und dann muss neu gerechnet werden.
+if (typeof window !== "undefined" && window.addEventListener) {
+  window.addEventListener("resize", einpassen);
+  window.addEventListener("orientationchange", () => setTimeout(einpassen, 120));
+  window.visualViewport?.addEventListener("resize", einpassen);
+}
 
 function render() {
   let html;
@@ -2454,6 +2540,9 @@ function render() {
     html += `<div class="offline-bar">Keine Verbindung – versuche neu zu verbinden…</div>`;
   }
   el.innerHTML = html;
+  // Erst passend rechnen, dann das Spielfeld anbauen: der Zeichner misst das
+  // Canvas aus, und das muss dann schon seine endgueltige Groesse haben.
+  einpassen();
   if (S.screen === "game" && S.game?.game === "leber") leberAnbauen(S.game);
 
   clearTimeout(tickTimer);
