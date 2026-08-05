@@ -193,8 +193,27 @@ export function plaetzeVon(g, playerId) {
   return i < 0 ? [] : g.sitze.map((s, nr) => (s === i ? nr : -1)).filter((nr) => nr >= 0);
 }
 
-/** Ihr vorderer Platz - der, von dem aus sie auf den Tisch schaut. */
+/** Ihr erster Platz. Fuer alles, was nur EINEN Platz braucht. */
 export const platzVon = (g, playerId) => plaetzeVon(g, playerId)[0] ?? -1;
+
+/**
+ * Von welchem Platz aus schaut diese Person gerade auf den Tisch?
+ *
+ * Wer zwei Korken hat, schnippst mal von links, mal von rechts - und dann
+ * braucht er auch den Blick von der jeweiligen Ecke. Ein fester Blickwinkel
+ * waere bei 1 gegen 1 die Haelfte der Zuege der falsche.
+ *
+ * Genommen wird der naechste eigene Platz, der in dieser Runde noch drankommt.
+ * Ist man selbst am Zug, ist das genau der Korken, der gerade geschnippst wird;
+ * wartet man, schaut man schon von der Ecke, von der man als naechstes
+ * schiesst.
+ */
+export function kameraPlatz(g, playerId) {
+  const meine = plaetzeVon(g, playerId);
+  if (!meine.length) return 0;
+  if (meine.length === 1) return meine[0];
+  return g.reihe.slice(g.dran).find((nr) => meine.includes(nr)) ?? meine[0];
+}
 
 /** Wer schnippst diesen Platz? */
 export const spielerAmPlatz = (g, nr) => g.players[g.sitze[nr]] ?? null;
