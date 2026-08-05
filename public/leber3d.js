@@ -365,16 +365,18 @@ function korkenNetz(rand, deckel) {
   ];
 }
 
-const KORKEN_NETZE = [
-  korkenNetz(
+const KORKEN_HAUT = [
+  [
     { farbe: [150, 152, 158], haerte: 30, staerke: 0.85, dicht: true },
-    { farbe: [206, 208, 214], haerte: 26, staerke: 0.75, dicht: true }
-  ),
-  korkenNetz(
+    { farbe: [206, 208, 214], haerte: 26, staerke: 0.75, dicht: true },
+  ],
+  [
     { farbe: [26, 78, 122], haerte: 30, staerke: 0.85, dicht: true },
-    { farbe: [48, 122, 182], haerte: 26, staerke: 0.75, dicht: true }
-  ),
+    { farbe: [48, 122, 182], haerte: 26, staerke: 0.75, dicht: true },
+  ],
 ];
+
+const KORKEN_NETZE = KORKEN_HAUT.map(([r, d]) => korkenNetz(r, d));
 
 const FLASCHEN_KORKEN = skaliere(korkenNetz(SILBER, KAPPE_WEISS), MASSTAB);
 const FLASCHEN_KORKEN_Z = 21.55 * MASSTAB;
@@ -951,6 +953,12 @@ function leeresBrett(b) {
  * Jetzt wird die Szene einmal auf ein zweites Brett gemalt und danach nur noch
  * aufgelegt. Uebrig bleibt je Bild: ein Bild auflegen, ein Pfeil, ein Balken.
  */
+/** Eine Flasche ueber den Korken legen, der hinter ihr liegt. */
+function flascheDrueber(t) {
+  malFlascheInnen(t.x, t.y);
+  maleFlaechen(t.flaechen);
+}
+
 function malen(bild) {
   const b = cv.getBoundingClientRect();
   const breit = Math.round(b.width);
@@ -1052,10 +1060,7 @@ function szene(bild, b) {
       const rand = Math.abs(proj(e.k.x + KORKEN_R * 1.6, e.k.y, MATTE_Z).x - p.x);
       return p.x > r.x0 - rand && p.x < r.x1 + rand && p.y > r.y0 - rand && p.y < r.y1 + rand;
     });
-    if (verdeckt) {
-      malFlascheInnen(d.flasche.x, d.flasche.y);
-      maleFlaechen(d.flasche.flaechen);
-    }
+    if (verdeckt) flascheDrueber(d.flasche);
   }
 
   // Von oben ist Platz fuer die Namen - und genau dann will man wissen, wessen
